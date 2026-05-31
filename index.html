@@ -567,31 +567,14 @@ textarea.editable-input.header-input{
 
     <!-- 登录模式 -->
     <div id="login-mode">
-      <input type="email" id="login-email" placeholder="邮箱地址" autocomplete="off" />
+      <input type="text" id="login-username" placeholder="账号" autocomplete="off" />
       <input type="password" id="login-pass" placeholder="密码" autocomplete="off"
              onkeydown="if(event.key==='Enter')doLogin()" />
       <button class="login-btn" onclick="doLogin()">登 录</button>
-      <div style="margin-top:14px;text-align:center">
-        <span style="font-size:13px;color:var(--slate-400)">还没有账号？</span>
-        <button onclick="switchToRegister()" style="background:none;border:none;color:var(--blue-500);cursor:pointer;font-size:13px;font-weight:600;text-decoration:underline">立即注册</button>
-      </div>
-    </div>
-
-    <!-- 注册模式 -->
-    <div id="register-mode" style="display:none">
-      <input type="text" id="reg-username" placeholder="用户名（用于显示）" autocomplete="off" />
-      <input type="email" id="reg-email" placeholder="邮箱地址" autocomplete="off" />
-      <input type="password" id="reg-pass" placeholder="密码（至少6位）" autocomplete="off"
-             onkeydown="if(event.key==='Enter')doRegister()" />
-      <button class="login-btn" onclick="doRegister()">注 册</button>
-      <div style="margin-top:14px;text-align:center">
-        <span style="font-size:13px;color:var(--slate-400)">已有账号？</span>
-        <button onclick="switchToLogin()" style="background:none;border:none;color:var(--blue-500);cursor:pointer;font-size:13px;font-weight:600;text-decoration:underline">返回登录</button>
-      </div>
     </div>
 
     <div class="login-error" id="login-error"></div>
-    <div class="login-hint" style="display:none">默认账号：superadmin / super888</div>
+    <div class="login-hint">默认账号：ty / 123456</div>
   </div>
 </div>
 
@@ -992,8 +975,8 @@ const DEFAULT_HEADERS = {
 };
 
 const DEFAULT_USERS = [
-  { username: 'superadmin', password: 'super888', role: 'superadmin', display: '超级管理员' },
-  { username: 'admin', password: 'admin888', role: 'admin', display: '管理员' }
+  { username: 'superadmin', password: 'Super8888!', role: 'superadmin', display: '超级管理员' },
+  { username: 'admin', password: 'Admin8888!', role: 'admin', display: '管理员' }
 ];
 
 // 数据完全来自 Excel，30条（DG 15条 + NDG 15条）
@@ -1072,8 +1055,8 @@ function saveLocalUsers(list) { localStorage.setItem(LOCAL_USERS_KEY, JSON.strin
 function ensureLocalDefaults() {
   let list = getLocalUsers();
   const defaults = [
-    { id: 'local-superadmin', email: 'superadmin@local.system', password: 'super888', username: '超级管理员', role: 'superadmin' },
-    { id: 'local-admin', email: 'admin@local.system', password: 'admin888', username: '管理员', role: 'admin' }
+    { id: 'local-superadmin', email: 'superadmin@local.system', password: 'super888', username: 'superadmin', role: 'superadmin' },
+    { id: 'local-admin', email: 'admin@local.system', password: 'admin888', username: 'admin', role: 'admin' }
   ];
   let changed = false;
   for (const d of defaults) {
@@ -1915,12 +1898,12 @@ async function finishInit() {
 
 // ═══════════ 登录（Supabase Auth 版本） ═══════════
 async function doLogin() {
-  const email = document.getElementById('login-email').value.trim();
+  const email = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-pass').value;
   const errorEl = document.getElementById('login-error');
 
   if (!email || !password) {
-    errorEl.textContent = '请填写邮箱和密码';
+    errorEl.textContent = '请填写账号和密码';
     errorEl.style.display = 'block';
     return;
   }
@@ -1943,7 +1926,7 @@ async function doLogin() {
       const localUsers = getLocalUsers();
       const localUser = localUsers.find(u => u.email === email && u.password === password);
       if (!localUser) {
-        errorEl.textContent = '邮箱或密码错误';
+        errorEl.textContent = '账号或密码错误';
         errorEl.style.display = 'block';
         document.getElementById('login-pass').value = '';
         return;
@@ -1963,90 +1946,11 @@ async function doLogin() {
   }
 }
 
-// 注册新用户
-async function doRegister() {
-  const username = document.getElementById('reg-username').value.trim();
-  const email = document.getElementById('reg-email').value.trim();
-  const password = document.getElementById('reg-pass').value;
-  const errorEl = document.getElementById('login-error');
 
-  if (!username || !email || !password) {
-    errorEl.textContent = '请填写完整信息';
-    errorEl.style.display = 'block';
-    return;
-  }
-  if (password.length < 6) {
-    errorEl.textContent = '密码至少6位';
-    errorEl.style.display = 'block';
-    return;
-  }
 
-  try {
-    if (supabaseAvailable && supabase) {
-      // 1. 在 Supabase Auth 中注册用户
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { username }
-        }
-      });
 
-      if (error) {
-        errorEl.textContent = '注册失败：' + error.message;
-        errorEl.style.display = 'block';
-        return;
-      }
-
-      // 2. 创建 profile 记录
-      if (data.user) {
-        const { error: profileErr } = await supabase.from('profiles').insert({
-          id: data.user.id,
-          username,
-          role: 'admin',
-          created_at: new Date().toISOString()
-        });
-        if (profileErr) console.error('create profile error:', profileErr);
-      }
-    } else {
-      // Supabase 不可用，使用本地注册
-      const localUsers = getLocalUsers();
-      if (localUsers.find(u => u.email === email)) {
-        errorEl.textContent = '该邮箱已被注册';
-        errorEl.style.display = 'block';
-        return;
-      }
-      localUsers.push({
-        id: 'local-' + Date.now(),
-        email,
-        password,
-        username,
-        role: 'admin'
-      });
-      saveLocalUsers(localUsers);
-    }
-
-    errorEl.style.display = 'none';
-    showToast('✅ 注册成功！请登录', 'success');
-    switchToLogin();
-  } catch (err) {
-    console.error('doRegister error:', err);
-    errorEl.textContent = '注册异常：' + err.message;
-    errorEl.style.display = 'block';
-  }
-}
-
-function switchToRegister() {
-  document.getElementById('login-mode').style.display = 'none';
-  document.getElementById('register-mode').style.display = '';
-  document.getElementById('login-title-text').textContent = '用户注册';
-  document.getElementById('login-error').style.display = 'none';
-}
 
 function switchToLogin() {
-  document.getElementById('register-mode').style.display = 'none';
-  document.getElementById('login-mode').style.display = '';
-  document.getElementById('login-title-text').textContent = '空运报价系统';
   document.getElementById('login-error').style.display = 'none';
 }
 
@@ -2063,7 +1967,7 @@ async function doLogout() {
   appData = null; // reset on logout
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
-  document.getElementById('login-email').value = '';
+  document.getElementById('login-username').value = '';
   document.getElementById('login-pass').value = '';
   document.getElementById('login-error').style.display = 'none';
 
@@ -2564,11 +2468,10 @@ async function confirmAddUser() {
   if (pw.length < 6) { showToast('密码至少6位', 'error'); return; }
 
   try {
-    // 通过 Supabase Auth 创建新用户
-    // 注意：需要生成临时邮箱或使用其他方式
-    const tempEmail = `${un.replace(/\s/g, '_')}@local.system`; // 临时邮箱格式
+    // 通过 Supabase Auth 创建新用户（用 username 生成临时邮箱）
+    const email = `${un.replace(/\s/g, '_')}@local.system`;
     const { data, error } = await supabase.auth.signUp({
-      email: tempEmail,
+      email,
       password: pw,
       options: { data: { username: un } }
     });
@@ -2579,7 +2482,6 @@ async function confirmAddUser() {
     }
 
     if (data.user) {
-      // 创建 profile
       const { error: profileErr } = await supabase.from('profiles').insert({
         id: data.user.id,
         username: un,
