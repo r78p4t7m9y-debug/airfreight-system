@@ -1188,7 +1188,7 @@ function isCloudConfigured() {
 }
 
 // 通用 Supabase REST API 调用
-async function supabaseRequest(method, path, body) {
+async function supabaseRequest(method, path, body, extraHeaders) {
   const url = `${SUPABASE_URL}/rest/v1/${path}`;
   const headers = {
     'apikey': SUPABASE_ANON_KEY,
@@ -1196,6 +1196,7 @@ async function supabaseRequest(method, path, body) {
     'Content-Type': 'application/json',
     'Prefer': method === 'POST' ? 'return=representation' : method === 'PATCH' ? 'return=representation' : method === 'DELETE' ? 'return=representation' : 'count=exact'
   };
+  if (extraHeaders) Object.assign(headers, extraHeaders);
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
   const resp = await fetch(url, opts);
@@ -1224,19 +1225,20 @@ async function cloudLoadProjects() {
   }
 }
 
-// 保存所有项目到云端（全量覆盖）
+// 保存所有项目到云端（upsert 批量写入）
 async function cloudSaveProjects() {
   if (!isCloudConfigured() || !cloudAvailable) return;
   try {
-    // 先清空云端表
-    await supabaseRequest('DELETE', `${SUPABASE_TABLE}?id=not.is.null`, {});
-    // 再逐条插入
-    for (const p of projects) {
-      await supabaseRequest('POST', SUPABASE_TABLE, {
-        id: p.id,
-        data: p
-      });
+    if (projects.length === 0) {
+      // 没有项目，清空云端
+      await supabaseRequest('DELETE', `${SUPABASE_TABLE}?id=not.is.null`, {});
+      return;
     }
+    // 使用 upsert：存在则更新，不存在则插入
+    const rows = projects.map(p => ({ id: p.id, data: p }));
+    await supabaseRequest('POST', SUPABASE_TABLE, rows, {
+      'Prefer': 'return=representation,resolution=merge-duplicates'
+    });
   } catch (e) {
     console.warn('[cloudSave] 云端保存失败:', e.message);
   }
@@ -1246,20 +1248,14 @@ async function cloudSaveProjects() {
 async function cloudUpsertProject(project) {
   if (!isCloudConfigured() || !cloudAvailable) return;
   try {
-    // 使用 upsert：如果 id 存在则更新，否则插入
     await supabaseRequest('POST', SUPABASE_TABLE, {
       id: project.id,
       data: project
+    }, {
+      'Prefer': 'return=representation,resolution=merge-duplicates'
     });
   } catch (e) {
-    // 可能是重复键，尝试 update
-    try {
-      await supabaseRequest('PATCH', `${SUPABASE_TABLE}?id=eq.${encodeURIComponent(project.id)}`, {
-        data: project
-      });
-    } catch (e2) {
-      console.warn('[cloudUpsert] 云端保存失败:', e2.message);
-    }
+    console.warn('[cloudUpsert] 云端保存失败:', e.message);
   }
 }
 
