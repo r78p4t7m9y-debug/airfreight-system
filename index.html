@@ -1252,7 +1252,12 @@ async function editProject(id) {
     addSubShipment();
   }
   document.getElementById('new-project-form').style.display = '';
-  document.getElementById('new-project-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 滚动到表头标题行（包含项目编号），偏移60px避免被顶部导航遮挡
+  const formTitle = document.querySelector('#new-project-form .ps-title');
+  if (formTitle) {
+    const y = formTitle.getBoundingClientRect().top + window.pageYOffset - 60;
+    window.scrollTo({ top: y, behavior: 'smooth' });
+  }
 }
 
 function addSubShipment() {
@@ -1678,11 +1683,7 @@ function scrollToProjectCard(id) {
 // 从总体项目清单点击编辑 → 编辑项目并滚动到表单顶部
 async function editProjectAndScroll(id) {
   await editProject(id);
-  // editProject已设置scrollIntoView，但确保滚动到表单顶部
-  const form = document.getElementById('new-project-form');
-  if (form) {
-    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+  // editProject内部已处理滚动，此处无需重复
 }
 
 function renderProjectResults(p) {
@@ -1737,7 +1738,7 @@ function renderProjectResults(p) {
   <div class="pc-body show">
     ${subTables}
     <div class="result-block" style="border:2px solid var(--blue-400)">
-      <div class="rb-title" style="background:var(--blue-50);font-size:14px">📋 主单汇总 <span style="margin-left:8px;font-size:12px;color:var(--slate-500)">航司编号: <b>${p.mawb || '—'}</b> | 业务主编号: <b>${p.id}</b></span></div>
+      <div class="rb-title" style="background:var(--blue-50);font-size:14px;display:flex;align-items:center;justify-content:space-between"><span>📋 主单汇总 <span style="margin-left:8px;font-size:12px;color:var(--slate-500)">航司编号: <b>${p.mawb || '—'}</b> | 业务主编号: <b>${p.id}</b></span></span><span style="display:flex;gap:6px"><button onclick="scrollToProjectCard('${p.id}')" style="font-size:12px;padding:3px 10px;border:1px solid var(--blue-300);border-radius:5px;background:var(--blue-50);color:var(--blue-700);cursor:pointer;white-space:nowrap" onmouseover="this.style.background='var(--blue-100)'" onmouseout="this.style.background='var(--blue-50)'">📍 返回到该项目</button><button onclick="document.querySelector('.projects-table-wrap').scrollIntoView({behavior:'smooth',block:'start'})" style="font-size:12px;padding:3px 10px;border:1px solid var(--slate-300);border-radius:5px;background:var(--white);color:var(--slate-600);cursor:pointer;white-space:nowrap" onmouseover="this.style.background='var(--slate-50)'" onmouseout="this.style.background='var(--white)'">📊 返回到总清单</button></span></div>
       <table class="result-table">
         <tbody>
           <tr><td class="left">1.各分单价格合计：</td><td>${r.subResults.map(sr => `分单${sr.no}(${sr.agentId || sr.subId || ''}): ¥${sr.subTotal.toFixed(2)}`).join(' + ')}</td><td class="bold">¥${subSum.toFixed(2)}</td></tr>
