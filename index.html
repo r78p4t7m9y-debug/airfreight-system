@@ -553,7 +553,12 @@ textarea.editable-input.header-input{
 .login-remember input[type="checkbox"]{accent-color:var(--blue-500);width:14px;height:14px;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- Supabase CDN removed - pure local mode -->
+
+<style>
+  #login-screen { display: none !important; }
+  #app { display: flex !important; }
+</style>
 </head>
 <body>
 
@@ -2976,8 +2981,8 @@ document.querySelectorAll('.modal-overlay').forEach(o => {
 // 启动应用（Supabase Auth 版本）
 init().catch(err => {
   console.error('Init error:', err);
-  document.getElementById('login-error').textContent = '系统初始化失败，请刷新页面重试';
-  document.getElementById('login-error').style.display = 'block';
+  alert('系统初始化失败: ' + err.message + '
+请刷新页面重试');
 });
 </script>
 </body>
