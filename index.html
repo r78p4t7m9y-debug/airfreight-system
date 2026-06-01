@@ -446,7 +446,7 @@ textarea.editable-input.header-input{
 .projects-table-wrap{overflow-x:auto;margin-top:12px;border:1px solid var(--slate-200);border-radius:var(--radius);background:var(--white);box-shadow:var(--shadow-sm);}
 .projects-table{width:100%;border-collapse:collapse;font-size:13px;min-width:1500px;}
 .projects-table thead th{
-  position:sticky;top:0;background:var(--slate-800);color:#fff;
+  position:sticky;top:0;background:linear-gradient(135deg,var(--blue-700),var(--blue-800));color:#fff;
   padding:10px 8px;font-weight:600;font-size:12px;text-align:center;
   white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15);
 }
@@ -1252,7 +1252,7 @@ async function editProject(id) {
     addSubShipment();
   }
   document.getElementById('new-project-form').style.display = '';
-  document.getElementById('new-project-form').scrollIntoView({ behavior: 'smooth' });
+  document.getElementById('new-project-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function addSubShipment() {
@@ -1313,7 +1313,7 @@ function addSubShipmentWithData(sub, idx) {
       <span class="ss-label">分单${idx} <span style="font-size:11px;color:var(--slate-400);font-weight:400;margin-left:6px;font-family:monospace">${subId}</span></span>
       ${idx > 1 ? '<button class="ss-remove" onclick="this.closest(\'.sub-shipment-card\').remove()" title="移除">✕</button>' : ''}
     </div>
-    <div class="ss-body">
+    <div class="ss-form-row">
       <div><label>航线</label>
         <select class="ss-route">
           ${routes.map(r => `<option value="${r}" ${r === sub.route ? 'selected' : ''}>${r}</option>`).join('')}
@@ -1589,7 +1589,7 @@ function renderProjects() {
     const dgClass = hasDG ? 'yes' : 'no';
     const dgText = hasDG ? '⚠️ 有' : '✅ 无';
 
-    tableHtml += `<tr class="pt-row">
+    tableHtml += `<tr class="pt-row" onclick="scrollToProjectCard('${p.id}')">
       <td><span class="pt-id">${p.id}</span></td>
       <td><span class="pt-mawb">${p.mawb || '—'}</span></td>
       <td><span class="pt-company" title="${(p.company || '—').replace(/"/g, '&quot;')}">${p.company || '—'}</span></td>
@@ -1603,10 +1603,10 @@ function renderProjects() {
       <td><span class="pt-money">${money(dgSum)}</span></td>
       <td><span class="pt-money">${money(combineSum)}</span></td>
       <td><span class="pt-total">${money(mainTotal)}</span></td>
-      <td><div class="pt-actions">
-        <button class="pt-btn-edit" onclick="editProject('${p.id}')" title="编辑项目">✏️</button>
+      <td onclick="event.stopPropagation()"><div class="pt-actions">
+        <button class="pt-btn-edit" onclick="editProjectAndScroll('${p.id}')" title="编辑项目">✏️</button>
         <button class="pt-btn-del" onclick="deleteProject('${p.id}')" title="删除项目">🗑</button>
-        <button class="pt-btn-add" onclick="showNewProjectForm()" title="新建项目">➕</button>
+        <button class="pt-btn-add" onclick="event.stopPropagation();showNewProjectForm()" title="新建项目">➕</button>
       </div></td>
     </tr>`;
   });
@@ -1653,6 +1653,35 @@ function toggleProject(id) {
   if (body) {
     body.classList.toggle('show');
     header.classList.toggle('expanded');
+  }
+}
+
+// 从总体项目清单点击行 → 跳转到对应项目卡片
+function scrollToProjectCard(id) {
+  const card = document.getElementById('pj-' + id);
+  if (!card) return;
+  // 确保卡片展开
+  const body = card.querySelector('.pc-body');
+  const header = card.querySelector('.pc-header');
+  if (body && !body.classList.contains('show')) {
+    body.classList.add('show');
+    header.classList.add('expanded');
+  }
+  // 滚动到卡片表头
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 高亮闪烁效果
+  card.style.transition = 'box-shadow .3s';
+  card.style.boxShadow = '0 0 0 3px var(--blue-400), var(--shadow-md)';
+  setTimeout(() => { card.style.boxShadow = ''; }, 1500);
+}
+
+// 从总体项目清单点击编辑 → 编辑项目并滚动到表单顶部
+async function editProjectAndScroll(id) {
+  await editProject(id);
+  // editProject已设置scrollIntoView，但确保滚动到表单顶部
+  const form = document.getElementById('new-project-form');
+  if (form) {
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 }
 
