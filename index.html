@@ -77,7 +77,7 @@ body{
   background:var(--red-50);border:1px solid #fecaca;border-radius:var(--radius-sm);
   color:var(--red-600);font-size:13px;padding:8px 12px;margin-top:12px;display:none;
 }
-.login-hint{margin-top:18px;font-size:12px;color:var(--slate-400);}
+
 
 /* ═══════════ 主应用 ═══════════ */
 #app{display:none;flex-direction:column;min-height:100vh;}
@@ -1970,13 +1970,13 @@ async function fetchUserProfile(user) {
 }
 
 async function finishInit() {
-  await loadProjects();
-  setupUI();
-  loadHeadersToDOM();
-  setTimeout(() => document.querySelectorAll('.header-input').forEach(inp => { if (inp.tagName === 'TEXTAREA') autoHeight(inp); }), 50);
-  applyHeaderEditable();
-  renderTable();
-  if (canManageUsers()) renderUsers();
+  try { await loadProjects(); } catch(e) { console.error('loadProjects失败:', e); projects = []; }
+  try { setupUI(); } catch(e) { console.error('setupUI失败:', e); }
+  try { loadHeadersToDOM(); } catch(e) { console.error('loadHeadersToDOM失败:', e); }
+  try { setTimeout(() => document.querySelectorAll('.header-input').forEach(inp => { if (inp.tagName === 'TEXTAREA') autoHeight(inp); }), 50); } catch(e) {}
+  try { applyHeaderEditable(); } catch(e) { console.error('applyHeaderEditable失败:', e); }
+  try { renderTable(); } catch(e) { console.error('renderTable失败:', e); }
+  try { if (canManageUsers()) renderUsers(); } catch(e) { console.error('renderUsers失败:', e); }
 }
 
 // ═══════════ 登录（Supabase Auth 版本） ═══════════
@@ -2012,10 +2012,18 @@ async function doLogin() {
   }
 
   errorEl.style.display = 'none';
+  // 先切换界面，再初始化数据（避免初始化失败导致界面卡住）
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
-  await finishInit();
-  showToast('✅ 欢迎回来，' + currentUser.username, 'success');
+
+  // 初始化失败也不影响登录状态，用 try-catch 包住
+  try {
+    await finishInit();
+    showToast('✅ 欢迎回来，' + currentUser.username, 'success');
+  } catch (e) {
+    console.error('finishInit 失败（不影响登录）:', e);
+    showToast('⚠️ 登录成功，但数据加载异常，请刷新页面', 'warning');
+  }
 }
 
 
