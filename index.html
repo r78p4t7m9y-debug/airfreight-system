@@ -443,34 +443,67 @@ textarea.editable-input.header-input{
 .ss-form-row label{font-size:12px;color:var(--slate-500);display:block;margin-bottom:3px;}
 
 /* 项目清单表格 */
-.projects-table-wrap{overflow-x:auto;margin-top:12px;border:1px solid var(--slate-200);border-radius:var(--radius);background:var(--white);box-shadow:var(--shadow-sm);}
-.projects-table{width:100%;border-collapse:collapse;font-size:13px;min-width:1500px;}
+.projects-table-wrap{
+  overflow-x:auto;
+  margin-top:12px;
+  border:1px solid var(--slate-200);
+  border-radius:var(--radius);
+  background:var(--white);
+  box-shadow:var(--shadow-sm);
+  /* 让表格自适应 */
+  overflow-x:hidden;
+}
+.projects-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px;
+  table-layout:fixed;   /* 固定布局，按列宽比例分配 */
+  min-width:auto;         /* 移除固定最小宽度 */
+}
 .projects-table thead th{
   position:sticky;top:0;background:linear-gradient(135deg,var(--blue-700),var(--blue-800));color:#fff;
   padding:10px 8px;font-weight:600;font-size:12px;text-align:center;
-  white-space:nowrap;border-right:1px solid rgba(255,255,255,0.15);
+  white-space:normal;word-break:break-word;vertical-align:middle;
+  border-right:1px solid rgba(255,255,255,0.15);
+  /* 固定每列宽度比例，确保总宽度100% */
 }
-.projects-table thead th:last-child{border-right:none;}
+/* 为每列分配固定百分比宽度，确保不溢出 */
+.projects-table .col-pid{width:7%;min-width:70px;}
+.projects-table .col-mawb{width:9%;min-width:90px;}
+.projects-table .col-company{width:12%;min-width:100px;}
+.projects-table .col-route{width:10%;min-width:90px;}
+.projects-table .col-flight{width:8%;min-width:75px;}
+.projects-table .col-depart{width:12%;min-width:110px;}
+.projects-table .col-status{width:7%;min-width:65px;}
+.projects-table .col-dg{width:7%;min-width:60px;}
+.projects-table .col-ground{width:8%;min-width:75px;}
+.projects-table .col-freight{width:8%;min-width:75px;}
+.projects-table .col-dg-fee{width:8%;min-width:75px;}
+.projects-table .col-unload{width:8%;min-width:75px;}
+.projects-table .col-total{width:8%;min-width:80px;}
+.projects-table .col-actions{width:7%;min-width:60px;}
+.projects-table th:last-child{border-right:none;}
 .projects-table tbody td{
   padding:8px 6px;text-align:center;border-bottom:1px solid var(--slate-100);
   vertical-align:middle;font-size:13px;
+  white-space:normal;word-break:break-word;overflow:hidden;text-overflow:ellipsis;
 }
 .projects-table tbody tr.pt-row{cursor:pointer;transition:background .15s;}
 .projects-table tbody tr.pt-row:hover{background:var(--blue-50);}
 .projects-table tbody tr.pt-row.expanded{background:linear-gradient(135deg,var(--blue-50),#eef2ff);}
 .projects-table .pt-id{font-weight:700;color:var(--blue-700);font-family:monospace;font-size:14px;}
 .projects-table .pt-mawb{font-family:monospace;font-size:12px;}
-.projects-table .pt-company{max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.projects-table .pt-route{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;}
+.projects-table .pt-company{max-width:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.projects-table .pt-route{max-width:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;}
 .projects-table .pt-flight{font-family:monospace;font-size:12px;}
 .projects-table .pt-depart{font-size:11px;white-space:nowrap;}
 .projects-table .pt-status{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;}
-.projects-table .pt-status.待出发{background:#dbeafe;color:#1d4ed8;}
-.projects-table .pt-status.延误{background:#fef3c7;color:#b45309;}
-.projects-table .pt-status.完成{background:#d1fae5;color:#047857;}
+.projects-table .pt-status.待出发{background:var(--blue-100);color:var(--blue-700);}
+.projects-table .pt-status.延误{background:var(--red-50);color:var(--red-700);}
+.projects-table .pt-status.完成{background:var(--green-100);color:var(--green-700);}
 .projects-table .pt-dg{font-weight:600;}
-.projects-table .pt-dg.yes{color:#dc2626;}
-.projects-table .pt-dg.no{color:#16a34a;}
+.projects-table .pt-dg.yes{color:var(--red-600);}
+.projects-table .pt-dg.no{color:var(--green-600);}
 .projects-table .pt-money{font-weight:600;color:var(--slate-700);white-space:nowrap;}
 .projects-table .pt-total{font-weight:700;color:var(--blue-700);font-size:14px;white-space:nowrap;}
 .projects-table .pt-na{color:var(--slate-300);font-size:12px;}
@@ -481,10 +514,8 @@ textarea.editable-input.header-input{
 }
 .projects-table .pt-btn-edit{background:var(--blue-100);color:var(--blue-700);}
 .projects-table .pt-btn-edit:hover{background:var(--blue-600);color:#fff;}
-.projects-table .pt-btn-del{background:#fee2e2;color:#dc2626;}
-.projects-table .pt-btn-del:hover{background:#dc2626;color:#fff;}
-.projects-table .pt-btn-add{background:var(--green-100, #d1fae5);color:var(--green-700, #047857);}
-.projects-table .pt-btn-add:hover{background:var(--green-600, #16a34a);color:#fff;}
+.projects-table .pt-btn-del{background:var(--red-50);color:var(--red-600);}
+.projects-table .pt-btn-del:hover{background:var(--red-600);color:#fff;}
 /* 展开详情行 */
 .projects-table tr.pt-detail-row{display:none;background:var(--slate-50);}
 .projects-table tr.pt-detail-row.show{display:table-row;}
@@ -867,21 +898,53 @@ textarea.editable-input.header-input{
 
     <!-- 总体项目清单 -->
     <div style="margin-top:20px" id="projects-summary-section">
-      <div id="projects-summary-title" style="font-size:15px;font-weight:700;color:var(--slate-700);margin-bottom:8px;display:flex;align-items:center;gap:6px">
-        <span>📊</span> 总体项目清单
+      <div id="projects-summary-title" style="font-size:15px;font-weight:700;color:var(--slate-700);margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <span style="display:flex;align-items:center;gap:6px"><span>📊</span> <span>总体项目清单</span></span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <!-- 模糊搜索 -->
+          <input type="text" id="project-search" placeholder="模糊搜索..." oninput="filterProjectsTable()"
+                 style="padding:5px 10px;border:1px solid var(--slate-200);border-radius:6px;font-size:13px;width:160px;outline:none;transition:border-color .2s;"
+                 onfocus="this.style.borderColor='var(--blue-500)';this.style.boxShadow='0 0 0 3px rgba(59,130,246,0.1)'"
+                 onblur="this.style.borderColor='var(--slate-200)';this.style.boxShadow='none'" />
+          <!-- 出发时间筛选 -->
+          <select id="filter-departure" onchange="filterProjectsTable()"
+                  style="padding:5px 10px;border:1px solid var(--slate-200);border-radius:6px;font-size:13px;outline:none;cursor:pointer;background:#fff;appearance:none;-webkit-appearance:none;padding-right:24px;
+                  background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E&quot;);
+                  background-repeat:no-repeat;background-position:right 8px center;transition:border-color .2s;"
+                  onfocus="this.style.borderColor='var(--blue-500)'" onblur="this.style.borderColor='var(--slate-200)'">
+            <option value="">全部出发时间</option>
+            <option value="today">今天</option>
+            <option value="week">本周</option>
+            <option value="month">本月</option>
+            <option value="delayed">已延误</option>
+          </select>
+          <!-- 状态筛选 -->
+          <select id="filter-status" onchange="filterProjectsTable()"
+                  style="padding:5px 10px;border:1px solid var(--slate-200);border-radius:6px;font-size:13px;outline:none;cursor:pointer;background:#fff;appearance:none;-webkit-appearance:none;padding-right:24px;
+                  background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E&quot;);
+                  background-repeat:no-repeat;background-position:right 8px center;transition:border-color .2s;"
+                  onfocus="this.style.borderColor='var(--blue-500)'" onblur="this.style.borderColor='var(--slate-200)'">
+            <option value="">全部状态</option>
+            <option value="待出发">待出发</option>
+            <option value="延误">延误</option>
+            <option value="完成">完成</option>
+          </select>
+        </div>
       </div>
       <div class="projects-table-wrap">
         <table class="projects-table" id="projects-table">
           <thead><tr>
-            <th>业务主编号</th><th>主单航司编号</th><th>委托公司名称</th><th>线路</th><th>航班号</th>
-            <th>预计出发时间</th><th>状态</th><th>是否有危险品</th>
-            <th>地面港费用</th><th>航司空运费</th><th>航司危险品费用</th>
-            <th>卸货+危险品<br>(每主单)</th><th>主单总价格</th><th>操作</th>
+            <th class="col-pid">业务主编号</th><th class="col-mawb">主单航司编号</th><th class="col-company">委托公司名称</th>
+            <th class="col-route">线路</th><th class="col-flight">航班号</th>
+            <th class="col-depart">预计出发时间</th><th class="col-status">状态</th><th class="col-dg">是否有危险品</th>
+            <th class="col-ground">地面港费用</th><th class="col-freight">航司空运费</th><th class="col-dg-fee">航司危险品费用</th>
+            <th class="col-unload">卸货+危险品<br/>(每主单)</th><th class="col-total">主单总价格</th><th class="col-actions">操作</th>
           </tr></thead>
           <tbody id="projects-tbody"></tbody>
         </table>
       </div>
     </div>
+
 
     <!-- 项目卡片明细 -->
     <div style="margin-top:20px">
@@ -1667,6 +1730,62 @@ function clearAllProjects() {
   showToast('所有项目已清空', 'warning');
 }
 
+
+// 筛选总体项目清单表格
+function filterProjectsTable() {
+  const searchVal = (document.getElementById('project-search')?.value || '').toLowerCase();
+  const depFilter = document.getElementById('filter-departure')?.value || '';
+  const statusFilter = document.getElementById('filter-status')?.value || '';
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay());
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const rows = document.querySelectorAll('#projects-tbody .pt-row');
+  rows.forEach(tr => {
+    const cells = tr.querySelectorAll('td');
+    if (cells.length < 7) return;
+    const id = (cells[0]?.textContent || '').toLowerCase();
+    const mawb = (cells[1]?.textContent || '').toLowerCase();
+    const company = (cells[2]?.textContent || '').toLowerCase();
+    const route = (cells[3]?.textContent || '').toLowerCase();
+    const flight = (cells[4]?.textContent || '').toLowerCase();
+    const depTime = (cells[5]?.textContent || '').toLowerCase();
+    const status = (cells[6]?.textContent || '').replace(/[\s\uFEFF]/g, '');
+
+    // 模糊搜索：匹配业务主编号、主单航司编号、委托公司名称、线路、航班号
+    let matchSearch = true;
+    if (searchVal) {
+      matchSearch = id.includes(searchVal) || mawb.includes(searchVal) || company.includes(searchVal) || route.includes(searchVal) || flight.includes(searchVal);
+    }
+
+    // 出发时间筛选
+    let matchDep = true;
+    if (depFilter && depTime) {
+      const depDate = new Date(depTime);
+      if (depFilter === 'today') {
+        matchDep = depTime.startsWith(todayStr);
+      } else if (depFilter === 'week') {
+        matchDep = depDate >= weekStart && depDate <= now;
+      } else if (depFilter === 'month') {
+        matchDep = depDate >= monthStart && depDate <= now;
+      } else if (depFilter === 'delayed') {
+        // 已延误：预计出发时间 < 今天，且状态不是"完成"
+        matchDep = depDate < new Date(todayStr) && status !== '完成';
+      }
+    }
+
+    // 状态筛选
+    let matchStatus = true;
+    if (statusFilter) {
+      matchStatus = status.includes(statusFilter);
+    }
+
+    tr.style.display = (matchSearch && matchDep && matchStatus) ? '' : 'none';
+  });
+}
+
 function renderProjects() {
   const statusLabel = { '待出发': '待出发', '已出发': '已出发', '已到达': '已到达', '已签收': '已签收', '延误': '延误', '完成': '完成' };
   const container = document.getElementById('projects-list');
@@ -1706,20 +1825,20 @@ function renderProjects() {
     const dgText = hasDG ? '⚠️ 有' : '✅ 无';
 
     tableHtml += `<tr class="pt-row" onclick="scrollToProjectCard('${p.id}')">
-      <td><span class="pt-id">${p.id}</span></td>
-      <td><span class="pt-mawb">${p.mawb || '—'}</span></td>
-      <td><span class="pt-company" title="${(p.company || '—').replace(/"/g, '&quot;')}">${p.company || '—'}</span></td>
-      <td><span class="pt-route" title="${(routes || '—').replace(/"/g, '&quot;')}">${routes || '—'}</span></td>
-      <td><span class="pt-flight">${p.flightNo || '—'}</span></td>
-      <td><span class="pt-depart">${depTime || '—'}</span></td>
-      <td><span class="pt-status ${pStatus}">${statusLabel[pStatus] || pStatus}</span></td>
-      <td><span class="pt-dg ${dgClass}">${dgText}</span></td>
-      <td><span class="pt-money">${money(groundSum)}</span></td>
-      <td><span class="pt-money">${money(freightSum)}</span></td>
-      <td><span class="pt-money">${money(dgSum)}</span></td>
-      <td><span class="pt-money">${money(combineSum)}</span></td>
-      <td><span class="pt-total">${money(mainTotal)}</span></td>
-      <td onclick="event.stopPropagation()"><div class="pt-actions">
+      <td class="col-pid"><span class="pt-id">${p.id}</span></td>
+      <td class="col-mawb"><span class="pt-mawb">${p.mawb || '—'}</span></td>
+      <td class="col-company"><span class="pt-company" title="${(p.company || '—').replace(/"/g, '&quot;')}">${p.company || '—'}</span></td>
+      <td class="col-route"><span class="pt-route" title="${(routes || '—').replace(/"/g, '&quot;')}">${routes || '—'}</span></td>
+      <td class="col-flight"><span class="pt-flight">${p.flightNo || '—'}</span></td>
+      <td class="col-depart"><span class="pt-depart">${depTime || '—'}</span></td>
+      <td class="col-status"><span class="pt-status" ${pStatus}">${statusLabel[pStatus] || pStatus}</span></td>
+      <td class="col-dg"><span class="pt-dg" ${dgClass}">${dgText}</span></td>
+      <td class="col-ground"><span class="pt-money">${money(groundSum)}</span></td>
+      <td class="col-freight"><span class="pt-money">${money(freightSum)}</span></td>
+      <td class="col-dg-fee"><span class="pt-money">${money(dgSum)}</span></td>
+      <td class="col-unload"><span class="pt-money">${money(combineSum)}</span></td>
+      <td class="col-total"><span class="pt-total">${money(mainTotal)}</span></td>
+      <td class="col-actions" onclick="event.stopPropagation()"><div class="pt-actions">
         <button class="pt-btn-edit" onclick="editProjectAndScroll('${p.id}')" title="编辑项目">✏️</button>
         <button class="pt-btn-del" onclick="deleteProject('${p.id}')" title="删除项目">🗑</button>
         <button class="pt-btn-add" onclick="event.stopPropagation();showNewProjectForm()" title="新建项目">➕</button>
@@ -1761,6 +1880,7 @@ function renderProjects() {
     </div>`;
   });
   container.innerHTML = cardsHtml;
+  filterProjectsTable();
 }
 
 function toggleProject(id) {
