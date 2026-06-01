@@ -553,7 +553,7 @@ textarea.editable-input.header-input{
 .login-remember input[type="checkbox"]{accent-color:var(--blue-500);width:14px;height:14px;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-<!-- Supabase CDN removed - pure local mode -->
+
 
 <style>
   #login-screen { display: none !important; }
@@ -1096,7 +1096,7 @@ let editMode = false; // 编辑模式开关：默认锁定，点击"编辑"后�
 const HEADERS_VERSION = 4; // 表头版本号：每次修改DEFAULT_HEADERS后递增，强制同步旧缓存
 
 // ═══════════ 本地用户存储 ═══════════
-（Supabase 不可用时降级） ═══════════
+纯本地存储 ═══════════
 const LOCAL_USERS_KEY = 'af_local_users_v1';
 function getLocalUsers() {
   try { return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY)) || []; }
@@ -1126,7 +1126,7 @@ const KEY_DATA = 'airfreight_data_v4';;
 let projects = []; // { id, company, mawb, subShipments, results, createdAt }
 let currentProjectId = null; // editing project
 
-// ═══════════ 栏目二：项目管理（Supabase 版本） ═══════════
+// ═══════════ 栏目二：项目管理（本地版本） ═══════════
 async function loadProjects() {
   try {
     const raw = localStorage.getItem('af_projects_v2');
@@ -1546,7 +1546,7 @@ function canManageUsers() { return isSuperAdmin(); }
 function canBackup() { return isSuperAdmin(); }
 function canEdit() { return isAdmin() && editMode; } // 编辑模式开关
 
-// ═══════════ 初始化（Supabase Auth 版本） ═══════════
+// ═══════════ 初始化（纯本地模式） ═══════════
 async function init() {
   // 自动登录为超级管理员（跳过登录界面）
   currentUser = {
@@ -1595,7 +1595,7 @@ async function init() {
 
 
 
-// ═══════════ 登录（Supabase Auth 版本） ═══════════
+// ═══════════ 登录（纯本地模式） ═══════════
 async function doLogin() {
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-pass').value;
@@ -2031,7 +2031,7 @@ function saveValidity() {
   showToast('有效期已更新', 'success');
 }
 
-// ═══════════ 用户管理（Supabase profiles 版本） ═══════════
+// ═══════════ 用户管理（纯本地模式） ═══════════
 let usersList = []; // 缓存从 profiles 表加载的用户列表
 
 function renderUsers() {
@@ -2050,62 +2050,37 @@ function renderUsers() {
   `).join('');
 }
 
-async function updateUserRole(userId, newRole) {
-  if (!canManageUsers()) return;
-  try {
-    const sc = usersList.filter(u => u.role === 'superadmin').length;
-    const user = usersList.find(u => u.id === userId);
-    if (user && user.role === 'superadmin' && newRole !== 'superadmin' && sc <= 1) {
-      showToast('至少保留一个超级管理员', 'error');
-      renderUsers();
-      return;
-    }
-
-    const { error } = await supabase
-      .from('profiles')
-      .update({ role: newRole })
-      .eq('id', userId);
-
-    if (error) {
-      showToast('更新角色失败：' + error.message, 'error');
-      return;
-    }
-    showToast('角色已更新', 'success');
-    // 如果修改的是当前用户，刷新本地
-    if (currentUser && currentUser.id === userId) {
-      currentUser.role = newRole;
-      setupUI();
-    }
-  } catch (err) {
-    console.error('updateUserRole error:', err);
-    showToast('操作失败：' + err.message, 'error');
+function updateUserRole(userId, newRole) {
+  const users = getLocalUsers();
+  const user = users.find(u => u.id === userId);
+  if (!user) { showToast('用户不存在', 'error'); return; }
+  const sc = users.filter(u => u.role === 'superadmin').length;
+  if (user.role === 'superadmin' && sc <= 1) {
+    showToast('至少保留一个超级管理员', 'error'); return;
   }
+  user.role = newRole;
+  user.display = newRole === 'superadmin' ? '超级管理员' : '管理员';
+  saveLocalUsers(users);
+  showToast('角色已更新', 'success');
+  if (currentUser && currentUser.id === userId) {
+    currentUser.role = newRole;
+    setupUI();
+  }
+  renderUsers();
 }
 
-async function deleteUserProfile(userId, username) {
-  const sc = usersList.filter(u => u.role === 'superadmin').length;
-  const user = usersList.find(u => u.id === userId);
+function deleteUserProfile(userId, username) {
+  const users = getLocalUsers();
+  const sc = users.filter(u => u.role === 'superadmin').length;
+  const user = users.find(u => u.id === userId);
   if (user && user.role === 'superadmin' && sc <= 1) {
     showToast('至少保留一个超级管理员', 'error'); return;
   }
-  if (!confirm(`确定删除「${username}」？\n注意：这将从系统中移除该用户的 profile。`)) return;
-
-  try {
-    const { error } = await supabase
-      .from('profiles')
-      .delete()
-      .eq('id', userId);
-
-    if (error) {
-      showToast('删除失败：' + error.message, 'error');
-      return;
-    }
-    showToast('已删除用户', 'warning');
-    await renderUsers();
-  } catch (err) {
-    console.error('deleteUser error:', err);
-    showToast('删除失败：' + err.message, 'error');
-  }
+  if (!confirm('确定删除「' + username + '」？')) return;
+  const newUsers = users.filter(u => u.id !== userId);
+  saveLocalUsers(newUsers);
+  showToast('已删除用户', 'warning');
+  renderUsers();
 }
 
 function showAddUserModal() {
@@ -2150,11 +2125,10 @@ function confirmAddUser() {
 }
 
 function saveUsers() {
-  // Supabase 版本：用户数据实时同步到 profiles 表，无需手动保存
-  showToast('✅ 账号配置已自动保存（Supabase 实时同步）', 'success');
+    showToast('✅ 角色已更新', 'success');
 }
 
-// ═══════════ 数据备份（Supabase 版本） ═══════════
+// ═══════════ 数据备份（本地版本） ═══════════
 function backupExport() {
   if (!canBackup()) return;
   try {
@@ -2537,7 +2511,7 @@ document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', e => { if (e.target === o) o.classList.remove('show'); });
 });
 
-// 启动应用（Supabase Auth 版本）
+// 启动应用（纯本地模式）
 init().catch(err => {
   console.error('Init error:', err);
   alert('系统初始化失败: ' + err.message + '
