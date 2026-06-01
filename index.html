@@ -558,7 +558,7 @@ textarea.editable-input.header-input{
 <body>
 
 <!-- ═══════════ 登录页 ═══════════ -->
-<div id="login-screen">
+<div id="login-screen" style="display:none;">
   <div class="login-bg-pattern"></div>
   <div class="login-card" id="login-form">
     <div class="login-logo">
@@ -632,7 +632,7 @@ textarea.editable-input.header-input{
 </div>
 
 <!-- ═══════════ 主应用 ═══════════ -->
-<div id="app">
+<div id="app" style="display:flex;">
   <!-- 顶部导航 -->
   <div class="topbar">
     <div class="topbar-brand">
@@ -1139,73 +1139,15 @@ let currentProjectId = null; // editing project
 // ═══════════ 栏目二：项目管理（Supabase 版本） ═══════════
 async function loadProjects() {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { projects = []; return; }
-
-    const { data: projRows, error } = await supabase
-      .from('projects')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (error) { console.error('loadProjects error:', error); projects = []; return; }
-    if (!projRows) { projects = []; return; }
-
-    // 为每个项目加载分单，转换为旧的 appData 结构
-    const result = [];
-    for (const p of projRows) {
-      const { data: subs } = await supabase
-        .from('sub_shipments')
-        .select('*')
-        .eq('project_id', p.id)
-        .eq('user_id', user.id)
-        .order('sort_order', { ascending: true });
-
-      // 转换回旧的数据结构
-      const projectData = {
-        id: p.id,
-        company: p.company,
-        mawb: p.mawb,
-        departure: p.departure_time,
-        flightNo: p.flight_no,
-        status: p.status,
-        routes: p.routes,
-        hasDG: p.has_dg,
-        subShipments: subs ? subs.map(s => ({
-          subId: s.sub_id,
-          agentId: s.agent_id,
-          goodsDesc: s.goods_desc,
-          remark: s.remark,
-          dgClass: s.dg_class,
-          weight: s.weight,
-          volume: s.volume,
-          cbm: s.cbm,
-          pieces: s.pieces,
-          chargeWeight: s.charge_weight,
-          qData: s.q_data || {}
-        })) : [],
-        results: p.results,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at
-      };
-
-      // 恢复 appData 兼容性（如果项目在 appData 中有额外数据）
-      if (appData && appData[p.id]) {
-        Object.assign(projectData, appData[p.id]);
-      }
-      appData[p.id] = projectData;
-      result.push(projectData);
-    }
-    projects = result;
-  } catch (err) {
-    console.error('loadProjects exception:', err);
-    projects = [];
-  }
+    const raw = localStorage.getItem('af_projects_v2');
+    projects = raw ? JSON.parse(raw) : [];
+  } catch(e) { projects = []; }
 }
 
 async function saveProjects() {
-  // Supabase 版本：项目数据通过 saveProjectToDB 逐个保存
-  // 此函数保留用于向后兼容，实际保存逻辑已移入 calculateProject
+  try {
+    localStorage.setItem('af_projects_v2', JSON.stringify(projects));
+  } catch(e) { console.error('save fail:', e); }
 }
 
 async function getNextProjectId() {
@@ -1884,6 +1826,15 @@ function canEdit() { return isAdmin() && editMode; } // 编辑模式开关
 
 // ═══════════ 初始化（Supabase Auth 版本） ═══════════
 async function init() {
+  // 自动登录为超级管理员（跳过登录界面）
+  currentUser = {
+    id: "local-superadmin", username: "superadmin",
+    email: "superadmin@local.system", role: "superadmin",
+    display: "超级管理员", authUser: null
+  };
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("app").style.display = "flex";
+
   // 加载本地数据（报价查询表数据仍使用 localStorage）
   const savedData = localStorage.getItem(KEY_DATA);
   appData = savedData ? JSON.parse(savedData) : JSON.parse(JSON.stringify(DEFAULT_DATA));
