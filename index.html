@@ -819,6 +819,7 @@ textarea.editable-input.header-input{
     <div class="page-header">
       <div><div class="page-title">📄 空运报价表</div><div class="page-subtitle">新建项目 → 输入参数 → 自动计算报价</div></div>
       <div class="btn-group">
+        <span id="cloud-status" style="font-size:12px;margin-right:6px;display:flex;align-items:center;gap:4px;cursor:help" title="云端数据库连接状态"></span>
         <button class="btn btn-primary" onclick="showNewProjectForm()">+ 新建项目</button>
         <button class="btn btn-ghost" onclick="renderProjects()">🔄 刷新</button>
 
@@ -865,8 +866,8 @@ textarea.editable-input.header-input{
     </div>
 
     <!-- 总体项目清单 -->
-    <div style="margin-top:20px">
-      <div style="font-size:15px;font-weight:700;color:var(--slate-700);margin-bottom:8px;display:flex;align-items:center;gap:6px">
+    <div style="margin-top:20px" id="projects-summary-section">
+      <div id="projects-summary-title" style="font-size:15px;font-weight:700;color:var(--slate-700);margin-bottom:8px;display:flex;align-items:center;gap:6px">
         <span>📊</span> 总体项目清单
       </div>
       <div class="projects-table-wrap">
@@ -1175,18 +1176,130 @@ const KEY_DATA = 'airfreight_data_v5';;
 let projects = []; // { id, company, mawb, subShipments, results, createdAt }
 let currentProjectId = null; // editing project
 
+// ═══════════ 云端数据库（Supabase REST API） ═══════════
+const SUPABASE_URL = 'https://aepvhmxuatuhoxqgqxzx.supabase.co';
+const SUPABASE_ANON_KEY = '__PASTE_YOUR_ANON_KEY_HERE__'; // 替换为你的 Supabase Anon Key
+const SUPABASE_TABLE = 'projects';
+let cloudAvailable = false; // 云端是否可用
+
+// 检测 Supabase 是否已配置
+function isCloudConfigured() {
+  return SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== '__PASTE_YOUR_ANON_KEY_HERE__' && SUPABASE_ANON_KEY.length > 10;
+}
+
+// 通用 Supabase REST API 调用
+async function supabaseRequest(method, path, body) {
+  const url = `${SUPABASE_URL}/rest/v1/${path}`;
+  const headers = {
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json',
+    'Prefer': method === 'POST' ? 'return=representation' : method === 'PATCH' ? 'return=representation' : method === 'DELETE' ? 'return=representation' : 'count=exact'
+  };
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const resp = await fetch(url, opts);
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Supabase ${resp.status}: ${errText}`);
+  }
+  const text = await resp.text();
+  return text ? JSON.parse(text) : null;
+}
+
+// 从云端加载所有项目
+async function cloudLoadProjects() {
+  if (!isCloudConfigured()) return null;
+  try {
+    const rows = await supabaseRequest('GET', `${SUPABASE_TABLE}?select=data&order=created_at.asc`);
+    if (Array.isArray(rows)) {
+      cloudAvailable = true;
+      return rows.map(r => r.data).filter(Boolean);
+    }
+    return null;
+  } catch (e) {
+    console.warn('[cloudLoad] 云端加载失败，使用本地数据:', e.message);
+    cloudAvailable = false;
+    return null;
+  }
+}
+
+// 保存所有项目到云端（全量覆盖）
+async function cloudSaveProjects() {
+  if (!isCloudConfigured() || !cloudAvailable) return;
+  try {
+    // 先清空云端表
+    await supabaseRequest('DELETE', `${SUPABASE_TABLE}?id=not.is.null`, {});
+    // 再逐条插入
+    for (const p of projects) {
+      await supabaseRequest('POST', SUPABASE_TABLE, {
+        id: p.id,
+        data: p
+      });
+    }
+  } catch (e) {
+    console.warn('[cloudSave] 云端保存失败:', e.message);
+  }
+}
+
+// 保存单个项目到云端（upsert）
+async function cloudUpsertProject(project) {
+  if (!isCloudConfigured() || !cloudAvailable) return;
+  try {
+    // 使用 upsert：如果 id 存在则更新，否则插入
+    await supabaseRequest('POST', SUPABASE_TABLE, {
+      id: project.id,
+      data: project
+    });
+  } catch (e) {
+    // 可能是重复键，尝试 update
+    try {
+      await supabaseRequest('PATCH', `${SUPABASE_TABLE}?id=eq.${encodeURIComponent(project.id)}`, {
+        data: project
+      });
+    } catch (e2) {
+      console.warn('[cloudUpsert] 云端保存失败:', e2.message);
+    }
+  }
+}
+
+// 从云端删除单个项目
+async function cloudDeleteProject(id) {
+  if (!isCloudConfigured() || !cloudAvailable) return;
+  try {
+    await supabaseRequest('DELETE', `${SUPABASE_TABLE}?id=eq.${encodeURIComponent(id)}`, {});
+  } catch (e) {
+    console.warn('[cloudDelete] 云端删除失败:', e.message);
+  }
+}
+
 // ═══════════ 栏目二：项目管理（本地版本） ═══════════
 async function loadProjects() {
   try {
+    // 优先从云端加载
+    const cloudData = await cloudLoadProjects();
+    if (cloudData !== null) {
+      projects = cloudData;
+      // 同步到 localStorage 作为缓存
+      localStorage.setItem('af_projects_v2', JSON.stringify(projects));
+      return;
+    }
+    // 云端不可用时降级到 localStorage
     const raw = localStorage.getItem('af_projects_v2');
     projects = raw ? JSON.parse(raw) : [];
-  } catch(e) { projects = []; }
+  } catch(e) {
+    // 异常降级
+    const raw = localStorage.getItem('af_projects_v2');
+    projects = raw ? JSON.parse(raw) : [];
+  }
 }
 
 async function saveProjects() {
   try {
     localStorage.setItem('af_projects_v2', JSON.stringify(projects));
   } catch(e) { console.error('save fail:', e); }
+  // 异步保存到云端（不阻塞UI）
+  cloudSaveProjects();
 }
 
 async function getNextProjectId() {
@@ -1537,6 +1650,8 @@ async function deleteProject(id) {
     if (appData[id]) delete appData[id];
     await saveProjects();
     localStorage.setItem(KEY_DATA, JSON.stringify(appData));
+    // 从云端删除
+    cloudDeleteProject(id);
     renderProjects();
     showToast('项目 ' + id + ' 已永久删除', 'warning');
   } catch (err) {
@@ -1672,8 +1787,9 @@ function scrollToProjectCard(id) {
     body.classList.add('show');
     header.classList.add('expanded');
   }
-  // 滚动到卡片表头
-  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 滚动到卡片表头第一行（含业务主编号），偏移60px避免顶部导航遮挡
+  const y = card.getBoundingClientRect().top + window.pageYOffset - 60;
+  window.scrollTo({ top: y, behavior: 'smooth' });
   // 高亮闪烁效果
   card.style.transition = 'box-shadow .3s';
   card.style.boxShadow = '0 0 0 3px var(--blue-400), var(--shadow-md)';
@@ -1738,7 +1854,7 @@ function renderProjectResults(p) {
   <div class="pc-body show">
     ${subTables}
     <div class="result-block" style="border:2px solid var(--blue-400)">
-      <div class="rb-title" style="background:var(--blue-50);font-size:14px;display:flex;align-items:center;justify-content:space-between"><span>📋 主单汇总 <span style="margin-left:8px;font-size:12px;color:var(--slate-500)">航司编号: <b>${p.mawb || '—'}</b> | 业务主编号: <b>${p.id}</b></span></span><span style="display:flex;gap:6px"><button onclick="scrollToProjectCard('${p.id}')" style="font-size:12px;padding:3px 10px;border:1px solid var(--blue-300);border-radius:5px;background:var(--blue-50);color:var(--blue-700);cursor:pointer;white-space:nowrap" onmouseover="this.style.background='var(--blue-100)'" onmouseout="this.style.background='var(--blue-50)'">📍 返回到该项目</button><button onclick="document.querySelector('.projects-table-wrap').scrollIntoView({behavior:'smooth',block:'start'})" style="font-size:12px;padding:3px 10px;border:1px solid var(--slate-300);border-radius:5px;background:var(--white);color:var(--slate-600);cursor:pointer;white-space:nowrap" onmouseover="this.style.background='var(--slate-50)'" onmouseout="this.style.background='var(--white)'">📊 返回到总清单</button></span></div>
+      <div class="rb-title" style="background:var(--blue-50);font-size:14px;display:flex;align-items:center;justify-content:space-between"><span>📋 主单汇总 <span style="margin-left:8px;font-size:12px;color:var(--slate-500)">航司编号: <b>${p.mawb || '—'}</b> | 业务主编号: <b>${p.id}</b></span></span><span style="display:flex;gap:6px"><button onclick="scrollToProjectCard('${p.id}')" style="font-size:12px;padding:3px 10px;border:1px solid var(--blue-300);border-radius:5px;background:var(--blue-50);color:var(--blue-700);cursor:pointer;white-space:nowrap" onmouseover="this.style.background='var(--blue-100)'" onmouseout="this.style.background='var(--blue-50)'">📍 返回到该项目</button><button onclick="var t=document.getElementById('projects-summary-title');if(t){var y=t.getBoundingClientRect().top+window.pageYOffset-60;window.scrollTo({top:y,behavior:'smooth'})}" style="font-size:12px;padding:3px 10px;border:1px solid var(--slate-300);border-radius:5px;background:var(--white);color:var(--slate-600);cursor:pointer;white-space:nowrap" onmouseover="this.style.background='var(--slate-50)'" onmouseout="this.style.background='var(--white)'">📊 返回到总清单</button></span></div>
       <table class="result-table">
         <tbody>
           <tr><td class="left">1.各分单价格合计：</td><td>${r.subResults.map(sr => `分单${sr.no}(${sr.agentId || sr.subId || ''}): ¥${sr.subTotal.toFixed(2)}`).join(' + ')}</td><td class="bold">¥${subSum.toFixed(2)}</td></tr>
@@ -1758,6 +1874,22 @@ function isAdmin() { return currentUser && (currentUser.role === 'admin' || curr
 function canManageUsers() { return isSuperAdmin(); }
 function canBackup() { return isSuperAdmin(); }
 function canEdit() { return isAdmin() && editMode; } // 编辑模式开关
+
+// 云端状态指示器
+function updateCloudStatus() {
+  const el = document.getElementById('cloud-status');
+  if (!el) return;
+  if (!isCloudConfigured()) {
+    el.innerHTML = '<span style="color:var(--amber-500)">⚠️</span> 仅本地';
+    el.title = '云端数据库未配置，数据仅保存在当前浏览器中。更换浏览器或设备将无法看到数据。';
+  } else if (cloudAvailable) {
+    el.innerHTML = '<span style="color:var(--green-500)">☁️</span> 已同步';
+    el.title = '已连接云端数据库，数据跨浏览器/设备同步。';
+  } else {
+    el.innerHTML = '<span style="color:var(--red-500)">☁️</span> 未连接';
+    el.title = '云端数据库连接失败，数据仅保存在本地。';
+  }
+}
 
 // ═══════════ 初始化（纯本地模式） ═══════════
 async function init() {
@@ -1789,6 +1921,8 @@ async function init() {
   try {
     await loadProjects();
     setupUI();
+    // 更新云端状态指示器
+    updateCloudStatus();
     loadHeadersToDOM();
     setTimeout(() => document.querySelectorAll('.header-input').forEach(inp => {
       if (inp.tagName === 'TEXTAREA') autoHeight(inp);
