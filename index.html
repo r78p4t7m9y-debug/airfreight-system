@@ -1095,23 +1095,8 @@ let nextId = 100;
 let editMode = false; // 编辑模式开关：默认锁定，点击"编辑"后解锁
 const HEADERS_VERSION = 4; // 表头版本号：每次修改DEFAULT_HEADERS后递增，强制同步旧缓存
 
-// ═══════════ Supabase 初始化 ═══════════
-const SUPABASE_URL = 'https://aepvhmxuatuhoxqgqxzx.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_guRDEbvw16fvZoOAwlhrnA_cTy9RGNO';
-let supabase = null;
-let supabaseAvailable = false;
-try {
-  if (typeof window.supabase !== 'undefined' && window.supabase.createClient) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    supabaseAvailable = true;
-  } else {
-    console.warn('Supabase 库未加载，启用本地模式');
-  }
-} catch (e) {
-  console.error('Supabase 初始化失败:', e);
-}
-
-// ═══════════ 本地用户（Supabase 不可用时降级） ═══════════
+// ═══════════ 本地用户存储 ═══════════
+（Supabase 不可用时降级） ═══════════
 const LOCAL_USERS_KEY = 'af_local_users_v1';
 function getLocalUsers() {
   try { return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY)) || []; }
@@ -1156,38 +1141,25 @@ async function saveProjects() {
 }
 
 async function getNextProjectId() {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    const year = new Date().getFullYear();
-    const prefix = `ZY-${year}-`;
+  const year = new Date().getFullYear();
+  const prefix = `ZY-${year}-`;
+  // 从本地 projects 中查找最大编号
+  const existingNums = projects
+    .filter(p => p.id && p.id.startsWith(prefix))
+    .map(p => {
+      const parts = p.id.split('-');
+      return parts.length >= 3 ? parseInt(parts[2]) : 0;
+    })
+    .filter(n => !isNaN(n))
+    .sort((a, b) => a - b);
 
-    const { data } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('user_id', user.id)
-      .ilike('id', `${prefix}%`)
-      .order('id', { ascending: true });
-
-    if (!data || data.length === 0) return `${prefix}0001`;
-
-    const existingIds = data.map(r => {
-      const num = parseInt(r.id.split('-')[2]);
-      return isNaN(num) ? 0 : num;
-    }).sort((a, b) => a - b);
-
-    // 回填空缺
-    for (let i = 0; i < existingIds.length; i++) {
-      if (existingIds[i] !== i + 1) {
-        return `${prefix}${String(i + 1).padStart(4, '0')}`;
-      }
+  // 回填空缺
+  for (let i = 0; i < existingNums.length; i++) {
+    if (existingNums[i] !== i + 1) {
+      return `${prefix}${String(i + 1).padStart(4, '0')}`;
     }
-    return `${prefix}${String(existingIds.length + 1).padStart(4, '0')}`;
-  } catch (err) {
-    console.error('getNextProjectId error:', err);
-    // fallback: use local timestamp-based ID
-    const year = new Date().getFullYear();
-    return `ZY-${year}-${String(Math.floor(Math.random() * 9999) + 1).padStart(4, '0')}`;
   }
+  return `${prefix}${String(existingNums.length + 1).padStart(4, '0')}`;
 }
 
 async function showNewProjectForm() {
@@ -1347,9 +1319,6 @@ ${kg>=45?'  货运重量≥45Kg,<45Kg通道不适用':''}
 
 async function calculateProject() {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { showToast('未登录，请先登录', 'error'); return; }
-
     await loadProjects(); // 确保项目数据是最新的，避免编号冲突
     const company = document.getElementById('pj-company').value.trim();
     const mawb = document.getElementById('pj-mawb').value.trim();
@@ -1411,87 +1380,27 @@ async function calculateProject() {
       projects.push(project);
     }
 
-    // ── 保存到 Supabase ──
-    const routes = [...new Set(subs.map(s => s.route))].join(', ');
-    const hasDG = subs.some(s => s.isDG);
-
-    // 1. upsert 项目主记录
-    const projectRecord = {
-      id: pjId,
-      user_id: user.id,
-      company,
-      mawb,
-      departure_time: departureTime || null,
-      flight_no: flightNo || null,
-      status,
-      routes,
-      has_dg: hasDG,
-      results: { subResults, mainUnloadingFee, mainDGFee, mainTotal },
-      updated_at: new Date().toISOString()
+        // 保存到本地
+    const newProject = {
+      id: pjId, company, mawb,
+      departure: departureTime, flightNo, status,
+      hasDG, subShipments: subResults,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
-
-    const { error: projError } = await supabase
-      .from('projects')
-      .upsert(projectRecord, { onConflict: 'id,user_id' });
-
-    if (projError) {
-      console.error('Save project error:', projError);
-      showToast('项目保存失败: ' + projError.message, 'error');
-      return;
-    }
-
-    // 2. 先删除旧的分单记录（如果是编辑模式），再插入新的
-    if (currentProjectId) {
-      await supabase.from('sub_shipments')
-        .delete()
-        .eq('project_id', pjId)
-        .eq('user_id', user.id);
-    }
-
-    // 3. 插入新的分单记录
-    if (subs.length > 0) {
-      const subRecords = subs.map((s, idx) => ({
-        user_id: user.id,
-        project_id: pjId,
-        sub_id: s.subId,
-        agent_id: s.agentId || null,
-        departure: null,
-        arrival: null,
-        weight: s.kg,
-        volume: null,
-        cbm: null,
-        pieces: s.cartons,
-        goods_desc: `${s.route} (${s.isDG ? 'DG' : 'NDG'})`,
-        charge_weight: s.kg,
-        price_mode: s.leveling || 'auto',
-        dg_class: s.isDG ? 'DG' : null,
-        remark: '',
-        q_data: { route: s.route, isDG: s.isDG, leveling: s.leveling },
-        sort_order: idx + 1
-      }));
-
-      const { error: subsError } = await supabase
-        .from('sub_shipments')
-        .insert(subRecords);
-
-      if (subsError) {
-        console.error('Save sub_shipments error:', subsError);
-        showToast('分单保存失败: ' + subsError.message, 'error');
-        return;
-      }
-    }
-
-    appData[pjId] = project;
-    appData[pjId] = project;
-    currentProjectId = pjId;
-    hideNewProjectForm();
+    projects.push(newProject);
+    await saveProjects();
+    appData[pjId] = newProject;
+    localStorage.setItem(KEY_DATA, JSON.stringify(appData));
     renderProjects();
-    showToast('✅ 报价计算完成并已保存', 'success');
+    showToast('✅ 项目 ' + pjId + ' 计算完成并已保存', 'success');
+    closeModal('project-modal');
   } catch (err) {
     console.error('calculateProject error:', err);
-    showToast('计算过程出错: ' + err.message, 'error');
+    showToast('计算失败：' + err.message, 'error');
   }
 }
+
 
 function saveProject() {
   // Save without recalculating — just force calculate
@@ -1500,20 +1409,11 @@ function saveProject() {
 
 async function deleteProject(id) {
   if (!confirm('确定删除项目 ' + id + ' 吗？此操作不可恢复。')) return;
-
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { showToast('未登录', 'error'); return; }
-
-    // 先删除分单
-    await supabase.from('sub_shipments').delete().eq('project_id', id).eq('user_id', user.id);
-    // 再删除项目
-    const { error } = await supabase.from('projects').delete().eq('id', id).eq('user_id', user.id);
-
-    if (error) { showToast('删除失败: ' + error.message, 'error'); return; }
-
-    delete appData[id];
     projects = projects.filter(p => p.id !== id);
+    if (appData[id]) delete appData[id];
+    await saveProjects();
+    localStorage.setItem(KEY_DATA, JSON.stringify(appData));
     renderProjects();
     showToast('项目 ' + id + ' 已永久删除', 'warning');
   } catch (err) {
@@ -1523,198 +1423,15 @@ async function deleteProject(id) {
 }
 
 function clearAllProjects() {
-  // Supabase 版本：清空当前用户的所有项目
-  if (!confirm(`⚠️ 确定清空所有项目数据？\n此操作不可恢复！建议先导出备份。`)) return;
-  if (!confirm('⚠️ 再次确认：清空后无法恢复，确定继续？')) return;
-
-  (async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { showToast('未登录', 'error'); return; }
-
-      await supabase.from('sub_shipments').delete().eq('user_id', user.id);
-      await supabase.from('projects').delete().eq('user_id', user.id);
-
-      projects = [];
-      appData = {};
-      renderProjects();
-      showToast('已清空所有项目', 'warning');
-    } catch (err) {
-      console.error('clearAllProjects error:', err);
-      showToast('清空失败：' + err.message, 'error');
-    }
-  })();
+  if (!confirm('确定清空所有项目数据？此操作不可恢复！')) return;
+  if (!confirm('再次确认：清空后无法恢复，确定继续？')) return;
+  projects = [];
+  appData = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  localStorage.setItem(KEY_DATA, JSON.stringify(appData));
+  localStorage.setItem('af_projects_v2', '[]');
+  renderProjects();
+  showToast('所有项目已清空', 'warning');
 }
-
-async function editProject(id) {
-  await loadProjects(); // 确保项目数据是最新的
-  const project = projects.find(p => p.id === id);
-  if (!project) return;
-  currentProjectId = id;
-  document.getElementById('project-form-title').textContent = '✏️ 编辑项目';
-  document.getElementById('pj-id').value = project.id;
-  document.getElementById('pj-company').value = project.company;
-  document.getElementById('pj-mawb').value = project.mawb;
-  document.getElementById('pj-flight').value = project.flightNo || '';
-  document.getElementById('pj-flight').value = project.flightNo || '';
-  document.getElementById('pj-departure').value = project.departureTime || '';
-  document.getElementById('pj-status').value = project.status || '待出发';
-  document.getElementById('sub-shipments-container').innerHTML = '';
-  project.subShipments.forEach(s => {
-    const container = document.getElementById('sub-shipments-container');
-    const idx = container.children.length + 1;
-    const routes = [...new Set(appData.rows.map(r => r.route))].sort();
-    const card = document.createElement('div');
-    card.className = 'sub-shipment-card';
-    const subId = s.subId || (id + '-' + String(idx).padStart(2, '0'));
-    card.dataset.subId = subId;
-    card.innerHTML = `
-      <div class="ss-header">
-        <span class="ss-label">分单${idx} <span style="font-size:11px;color:var(--slate-400);font-weight:400;margin-left:6px;font-family:monospace">${subId}</span></span>
-        ${idx > 1 ? '<button class="ss-remove" onclick="this.closest(\'.sub-shipment-card\').remove()" title="移除">✕</button>' : ''}
-      </div>
-      <div class="ss-form-row">
-        <div><label>业务子编号</label><input type="text" class="ss-sub-id" value="${subId}" readonly /></div>
-        <div><label>分单代理编号</label><input type="text" class="ss-agent-id" value="${s.agentId||''}" placeholder="代理编号" /></div>
-        <div><label>公斤数 (Kg)</label><input type="number" class="ss-kg" step="0.01" value="${s.kg}" /></div>
-        <div><label>箱数 (Cartons)</label><input type="number" class="ss-cartons" step="1" value="${s.cartons}" /></div>
-        <div><label>线路选择</label>
-          <select class="ss-route">${routes.map(r => `<option value="${r}" ${r===s.route?'selected':''}>${r}</option>`).join('')}</select>
-        </div>
-        <div><label>货物属性</label>
-          <select class="ss-hasDG">
-            <option value="NDG" ${!s.isDG?'selected':''}>普通货 NDG</option>
-            <option value="DG" ${s.isDG?'selected':''}>危险品 DG</option>
-          </select>
-        </div>
-        <div><label>靠级优化</label>
-          <select class="ss-leveling">
-            <option value="auto" ${s.leveling==='auto'?'selected':''}>是（自动选最低）</option>
-            <option value="lt45" ${s.leveling==='lt45'?'selected':''}>否（按<45Kg计）</option>
-            <option value="ge45" ${s.leveling==='ge45'?'selected':''}>否（按≥45Kg计）</option>
-          </select>
-        </div>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-  document.getElementById('new-project-form').style.display = '';
-  document.getElementById('new-project-form').scrollIntoView({ behavior: 'smooth' });
-}
-
-
-async function renderProjectsTable() {
-  const tbody = document.getElementById('projects-tbody');
-  if (!tbody) return;
-  await loadProjects();
-  const sorted = [...projects].sort((a, b) => a.id.localeCompare(b.id));
-  let html = '';
-  sorted.forEach(p => {
-    const hasResults = p.results && p.results.subResults;
-    const fmt = v => (v||0).toLocaleString('zh-CN',{minimumFractionDigits:2});
-    const routes = [...new Set((p.subShipments||[]).map(s=>s.route))].join(', ');
-    const hasDG = (p.subShipments||[]).some(s=>s.isDG);
-
-    let groundTotal=0, freightTotal=0, dgTotal=0, mainTotal=0;
-    if (hasResults) {
-      const r = p.results;
-      groundTotal = r.subResults.reduce((s,sr)=>s+sr.groundTotal,0);
-      freightTotal = r.subResults.reduce((s,sr)=>s+sr.freightTotal,0);
-      dgTotal = r.subResults.reduce((s,sr)=>s+sr.dgTotal,0);
-      mainTotal = r.mainTotal||0;
-    }
-    const depTime = p.departureTime ? new Date(p.departureTime).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
-
-    html += `<tr class="clickable" onclick="scrollToProjectCard('${p.id}')" data-id="${p.id}">
-      <td>${p.id}</td>
-      <td>${p.mawb||'—'}</td>
-      <td>${p.company||'—'}</td>
-      <td>${routes||'—'}</td>
-      <td>${p.flightNo||'—'}</td>
-      <td>${depTime}</td>
-      <td><span class="status-badge ${p.status||'待出发'}">${p.status||'待出发'}</span></td>
-      <td>${hasDG?'是':'否'}</td>
-      <td>${hasResults?'¥'+fmt(groundTotal):'—'}</td>
-      <td>${hasResults?'¥'+fmt(freightTotal):'—'}</td>
-      <td>${hasResults?(hasDG?'¥'+fmt(dgTotal):'—'):'—'}</td>
-      <td>${hasResults?'¥'+fmt((p.results.mainUnloadingFee||0)+(p.results.mainDGFee||0)):'—'}</td>
-      <td style="font-weight:700;color:var(--blue-700)">${hasResults?'¥'+fmt(mainTotal):'—'}</td>
-      <td style="white-space:nowrap">
-        <button class="btn icon-sm" style="font-size:13px;padding:3px 10px;background:transparent;border:1px solid var(--slate-300);color:var(--slate-600)" onclick="event.stopPropagation();editProject('${p.id}')" title="编辑">✏️</button>
-        <button class="btn icon-sm" style="font-size:13px;padding:3px 10px;background:transparent;border:1px solid var(--slate-300);color:var(--slate-600)" onclick="event.stopPropagation();deleteProject('${p.id}')" title="删除">🗑️</button>
-      </td>
-    </tr>`;
-  });
-  tbody.innerHTML = html || '<tr><td colspan="14" style="text-align:center;color:var(--slate-400);padding:20px">暂无项目</td></tr>';
-}
-
-// 点击清单行跳转到对应项目卡片并展开
-function scrollToProjectCard(id) {
-  const card = document.getElementById('pj-' + id);
-  if (!card) return;
-  // 展开卡片
-  const body = card.querySelector('.pc-body');
-  const header = card.querySelector('.pc-header');
-  if (body && !body.classList.contains('show')) {
-    body.classList.add('show');
-    header.classList.add('expanded');
-  }
-  // 滚动到卡片表头位置，额外向上偏移让业务主编号完整可见
-  const headerRect = header.getBoundingClientRect();
-  const offset = headerRect.top + window.scrollY - 80; // 80px补偿顶部导航栏遮挡
-  window.scrollTo({ top: offset, behavior: 'smooth' });
-  // 高亮闪烁
-  card.style.boxShadow = '0 0 0 3px var(--blue-400)';
-  setTimeout(() => { card.style.boxShadow = ''; }, 1500);
-}
-
-// 为已有项目添加分单
-function addSubToProject(id) {
-  editProject(id);
-  // 等待表单渲染后添加新分单
-  setTimeout(() => addSubShipment(), 100);
-}
-
-async function renderProjects() {
-  await loadProjects();
-  renderProjectsTable(); // 同步更新清单汇总表
-  const container = document.getElementById('projects-list');
-  if (!projects.length) {
-    container.innerHTML = `<div class="coming-soon" style="margin-top:20px">
-      <div class="coming-soon-icon">📭</div>
-      <h3>暂无项目</h3><p>点击「新建项目」创建第一个空运报价</p></div>`;
-    return;
-  }
-
-  let html = '';
-  // Sort by business ID ascending (small to large)
-  const sorted = [...projects].sort((a, b) => a.id.localeCompare(b.id));
-  sorted.forEach(p => {
-    const dgCount = p.subShipments.filter(s => s.isDG).length;
-    const ts = p.createdAt ? new Date(p.createdAt).toLocaleString('zh-CN') : '—';
-    const hasResults = p.results && p.results.subResults;
-    const hasDG = p.subShipments.some(s => s.isDG);
-    const routes = [...new Set(p.subShipments.map(s => s.route))].join(', ');
-    const fmt = v => '¥' + (v || 0).toLocaleString('zh-CN', {minimumFractionDigits:2,maximumFractionDigits:2});
-
-    // 计算总体各部分报价汇总
-    let summaryHtml = '';
-    if (hasResults) {
-      const r = p.results;
-      const totalGround = r.subResults.reduce((s, sr) => s + sr.groundTotal, 0);
-      const totalFreight = r.subResults.reduce((s, sr) => s + sr.freightTotal, 0);
-      const totalDG = r.subResults.reduce((s, sr) => s + sr.dgTotal, 0);
-      summaryHtml = `
-      <div class="pc-summary-bar" onclick="event.stopPropagation();toggleProject('${p.id}')">
-        <div class="psb-item"><span class="psb-label">地面港费合计</span><span class="psb-value highlight-blue">${fmt(totalGround)}</span></div>
-        <div class="psb-item"><span class="psb-label">空运费合计</span><span class="psb-value highlight-blue">${fmt(totalFreight)}</span></div>
-        <div class="psb-item"><span class="psb-label">危险品费合计</span><span class="psb-value ${totalDG > 0 ? 'highlight-amber' : ''}">${totalDG > 0 ? fmt(totalDG) : '—'}</span></div>
-        <div class="psb-item"><span class="psb-label">卸货费 + 主单费用</span><span class="psb-value">${fmt(r.mainUnloadingFee + r.mainDGFee)}</span></div>
-        <div class="psb-total"><span class="psb-label">主单总价格</span><span class="psb-value">${fmt(r.mainTotal)}</span></div>
-      </div>`;
-    }
-
-    const statusLabel = { '待出发': '待出发', '延误': '延误', '完成': '完成' };
     const pStatus = p.status || '待出发';
     const depTime = p.departureTime ? new Date(p.departureTime).toLocaleString('zh-CN', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
 
@@ -1837,8 +1554,6 @@ async function init() {
     email: "superadmin@local.system", role: "superadmin",
     display: "超级管理员", authUser: null
   };
-  document.getElementById("login-screen").style.display = "none";
-  document.getElementById("app").style.display = "flex";
 
   // 加载本地数据（报价查询表数据仍使用 localStorage）
   const savedData = localStorage.getItem(KEY_DATA);
@@ -1854,86 +1569,31 @@ async function init() {
   }
   nextId = Math.max(100, ...appData.rows.map(r => r.id)) + 1;
 
-  // 7天免登录：检查是否有有效 token
-  const token = localStorage.getItem('af_remember_token');
-  const expire = localStorage.getItem('af_remember_expire');
-  if (token && expire && Date.now() < parseInt(expire)) {
-    try {
-      const creds = JSON.parse(atob(token));
-      if (creds.username && creds.password) {
-        document.getElementById('login-username').value = creds.username;
-        document.getElementById('login-pass').value = creds.password;
-        document.getElementById('login-remember').checked = true;
-        await doLogin();
-        return;
-      }
-    } catch (e) {
-      localStorage.removeItem('af_remember_token');
-      localStorage.removeItem('af_remember_expire');
-    }
-  }
+  // 确保默认用户存在
+  ensureLocalDefaults();
 
-  // 检查 Supabase Auth 状态
-  if (supabaseAvailable && supabase) {
-    try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) console.error('getSession error:', sessionError);
-
-      if (session && session.user) {
-        // 已登录，获取用户 profile
-        currentUser = await fetchUserProfile(session.user);
-        document.getElementById('login-screen').style.display = 'none';
-        document.getElementById('app').style.display = 'flex';
-        await finishInit();
-        return;
-      }
-    } catch (e) {
-      console.error('Supabase session check failed:', e);
-    }
-  }
-
-  // 未登录或 Supabase 不可用，显示登录页
-  document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('app').style.display = 'none';
-}
-
-async function fetchUserProfile(user) {
+  // 初始化 UI 和数据
   try {
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    if (error || !profile) {
-      // 如果没有 profile，创建一个
-      const newProfile = {
-        id: user.id,
-        username: user.email?.split('@')[0] || 'user',
-        role: 'admin',
-        created_at: new Date().toISOString()
-      };
-      const { error: insertErr } = await supabase.from('profiles').insert(newProfile);
-      if (insertErr) console.error('createProfile error:', insertErr);
-      return { ...newProfile, email: user.email, authUser: user };
-    }
-
-    return { ...profile, email: user.email, authUser: user };
-  } catch (err) {
-    console.error('fetchUserProfile error:', err);
-    return { id: user.id, username: user.email?.split('@')[0] || 'user', role: 'admin', email: user.email, authUser: user };
+    await loadProjects();
+    setupUI();
+    loadHeadersToDOM();
+    setTimeout(() => document.querySelectorAll('.header-input').forEach(inp => {
+      if (inp.tagName === 'TEXTAREA') autoHeight(inp);
+    }), 50);
+    applyHeaderEditable();
+    updateValidityDisplay();
+    updateRoutesFilter();
+    renderTable();
+    if (canManageUsers()) renderUsers();
+    console.log('[init] 系统初始化完成');
+  } catch (e) {
+    console.error('[init] 初始化异常（继续）:', e);
   }
 }
 
-async function finishInit() {
-  try { await loadProjects(); } catch(e) { console.error('loadProjects失败:', e); projects = []; }
-  try { setupUI(); } catch(e) { console.error('setupUI失败:', e); }
-  try { loadHeadersToDOM(); } catch(e) { console.error('loadHeadersToDOM失败:', e); }
-  try { setTimeout(() => document.querySelectorAll('.header-input').forEach(inp => { if (inp.tagName === 'TEXTAREA') autoHeight(inp); }), 50); } catch(e) {}
-  try { applyHeaderEditable(); } catch(e) { console.error('applyHeaderEditable失败:', e); }
-  try { renderTable(); } catch(e) { console.error('renderTable失败:', e); }
-  try { if (canManageUsers()) renderUsers(); } catch(e) { console.error('renderUsers失败:', e); }
-}
+
+
+
 
 // ═══════════ 登录（Supabase Auth 版本） ═══════════
 async function doLogin() {
@@ -1986,30 +1646,13 @@ async function doLogin() {
 
 
 
-function switchToLogin() {
-  document.getElementById('login-error').style.display = 'none';
-}
 
-async function doLogout() {
-  try {
-    if (supabaseAvailable && supabase) {
-      await supabase.auth.signOut();
-    }
-  } catch (err) {
-    console.error('logout error:', err);
-  }
-  // 清除免登录 token
+
+function doLogout() {
   localStorage.removeItem('af_remember_token');
   localStorage.removeItem('af_remember_expire');
-  currentUser = null;
-  projects = [];
-  appData = null; // reset on logout
-  document.getElementById('login-screen').style.display = 'flex';
-  document.getElementById('app').style.display = 'none';
-  document.getElementById('login-username').value = '';
-  document.getElementById('login-pass').value = '';
-  document.getElementById('login-error').style.display = 'none';
-  switchToLogin();
+  // 纯本地模式：退出后自动重新登录
+  location.reload();
 }
 
 // ═══════════ UI ═══════════
@@ -2391,44 +2034,20 @@ function saveValidity() {
 // ═══════════ 用户管理（Supabase profiles 版本） ═══════════
 let usersList = []; // 缓存从 profiles 表加载的用户列表
 
-async function renderUsers() {
-  if (!canManageUsers()) return;
-  const tbody = document.getElementById('users-tbody');
-  tbody.innerHTML = '';
-
-  // 从 Supabase profiles 表加载用户列表
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: true });
-
-    if (error) {
-      console.error('loadUsers error:', error);
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--red-500)">加载用户失败</td></tr>';
-      return;
-    }
-
-    usersList = data || [];
-    usersList.forEach((u, idx) => {
-      const tr = document.createElement('tr');
-      const opts = [
-        '<option value="superadmin" ' + (u.role==='superadmin'?'selected':'') + '>超级管理员</option>',
-        '<option value="admin" ' + (u.role==='admin'?'selected':'') + '>管理员</option>',
-      ].join('');
-      tr.innerHTML = `
-        <td>${u.username || '-'}</td>
-        <td><select style="border:1px solid var(--slate-200);border-radius:4px;padding:5px 7px;font-size:12px;width:110px"
-               onchange="updateUserRole('${u.id}', this.value)">${opts}</select></td>
-        <td style="color:var(--slate-400);font-size:11px">—（由 Auth 管理）</td>
-        <td><button class="btn btn-danger" style="padding:3px 8px;font-size:13px"
-               onclick="deleteUserProfile('${u.id}', '${u.username||u.id}')">删除</button></td>
-      `;
-      tbody.appendChild(tr);
-    });
-  } catch (err) {
-    console.error('renderUsers error:', err);
-  }
+function renderUsers() {
+  const users = getLocalUsers();
+  const container = document.getElementById('users-list');
+  if (!container) return;
+  container.innerHTML = users.map(u => `
+    <div class="user-card">
+      <div class="user-avatar">${(u.username || u.email || '?').charAt(0).toUpperCase()}</div>
+      <div class="user-info">
+        <div class="user-name">${u.display || u.username || u.email}</div>
+        <div class="user-role">${u.role === 'superadmin' ? '超级管理员' : '管理员'}</div>
+      </div>
+      ${u.id !== 'local-superadmin' ? `<button class="btn-danger btn-sm" onclick="deleteLocalUser('${u.id}')">删除</button>` : '<span class="badge">默认</span>'}
+    </div>
+  `).join('');
 }
 
 async function updateUserRole(userId, newRole) {
@@ -2501,44 +2120,33 @@ function showAddUserModal() {
   document.getElementById('add-user-modal').classList.add('show');
 }
 
-async function confirmAddUser() {
+function confirmAddUser() {
   const un = document.getElementById('new-username').value.trim();
   const pw = document.getElementById('new-password').value;
   const role = document.getElementById('new-role').value;
   if (!un || !pw) { showToast('请填写完整', 'error'); return; }
   if (pw.length < 6) { showToast('密码至少6位', 'error'); return; }
 
-  try {
-    // 通过 Supabase Auth 创建新用户（用 username 生成临时邮箱）
-    const email = `${un.replace(/\s/g, '_')}@local.system`;
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password: pw,
-      options: { data: { username: un } }
-    });
-
-    if (error) {
-      showToast('创建账号失败：' + error.message, 'error');
-      return;
-    }
-
-    if (data.user) {
-      const { error: profileErr } = await supabase.from('profiles').insert({
-        id: data.user.id,
-        username: un,
-        role,
-        created_at: new Date().toISOString()
-      });
-      if (profileErr) console.error('createProfile:', profileErr);
-    }
-
-    closeModal('add-user-modal');
-    showToast('✅ 账号已创建', 'success');
-    await renderUsers();
-  } catch (err) {
-    console.error('confirmAddUser error:', err);
-    showToast('创建异常：' + err.message, 'error');
+  const localUsers = getLocalUsers();
+  if (localUsers.find(u => u.username === un)) {
+    showToast('用户名已存在', 'error');
+    return;
   }
+
+  const newUser = {
+    id: 'local-' + un.toLowerCase().replace(/\s/g, '-') + '-' + Date.now(),
+    email: un.replace(/\s/g, '_') + '@local.system',
+    username: un,
+    password: pw,
+    role: role,
+    display: role === 'superadmin' ? '超级管理员' : '管理员'
+  };
+  localUsers.push(newUser);
+  saveLocalUsers(localUsers);
+
+  closeModal('add-user-modal');
+  showToast('✅ 账号 ' + un + ' 已创建', 'success');
+  renderUsers();
 }
 
 function saveUsers() {
@@ -2547,18 +2155,14 @@ function saveUsers() {
 }
 
 // ═══════════ 数据备份（Supabase 版本） ═══════════
-async function backupExport() {
+function backupExport() {
   if (!canBackup()) return;
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    // 从 Supabase 加载完整数据用于导出
-    await loadProjects();
-
     const backup = {
-      version: '4.0-supabase',
+      version: '5.0-local',
       exportedAt: new Date().toISOString(),
       data: appData,
-      users: usersList,
+      users: getLocalUsers(),
       projects: projects,
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -2575,82 +2179,37 @@ async function backupExport() {
   }
 }
 
-async function backupImport(event) {
+function backupImport(event) {
   if (!canBackup()) return;
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = async function(e) {
+  reader.onload = function(e) {
     try {
       const backup = JSON.parse(e.target.result);
       if (!backup.data) {
-        showToast('❌ 无效的备份文件', 'error'); return;
+        showToast('无效的备份文件', 'error'); return;
       }
-      if (!confirm(`确认从备份恢复？\n\n当前数据将被替换。\n备份时间：${backup.exportedAt || '未知'}`)) return;
+      if (!confirm('确认从备份恢复？当前数据将被替换。\n备份时间：' + (backup.exportedAt || '未知'))) return;
 
-      // 恢复本地 appData（报价查询表）
       appData = backup.data;
-      if (!appData.headers) appData.headers = JSON.parse(JSON.stringify(DEFAULT_HEADERS));
-      nextId = Math.max(100, ...appData.rows.map(r => r.id)) + 1;
-      localStorage.setItem(KEY_DATA, JSON.stringify(appData));
-
-      // 恢复项目数据到 Supabase
-      if (backup.projects && Array.isArray(backup.projects) && backup.projects.length > 0) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          for (const p of backup.projects) {
-            const projectRecord = {
-              id: p.id,
-              user_id: user.id,
-              company: p.company || '',
-              mawb: p.mawb || '',
-              departure_time: p.departureTime || null,
-              flight_no: p.flightNo || null,
-              status: p.status || '待出发',
-              routes: p.routes || '',
-              has_dg: p.hasDG || false,
-              results: p.results || null,
-              created_at: p.createdAt || new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            };
-            await supabase.from('projects').upsert(projectRecord, { onConflict: 'id,user_id' });
-
-            // 恢复分单
-            if (p.subShipments && p.subShipments.length > 0) {
-              const subRecords = p.subShipments.map((s, idx) => ({
-                user_id: user.id,
-                project_id: p.id,
-                sub_id: s.subId || `${p.id}-${idx+1}`,
-                agent_id: s.agentId || null,
-                departure: null,
-                arrival: null,
-                weight: s.kg || s.weight || 0,
-                volume: s.volume || null,
-                cbm: s.cbm || null,
-                pieces: s.cartons || s.pieces || 0,
-                goods_desc: s.goodsDesc || '',
-                charge_weight: s.chargeWeight || s.kg || 0,
-                price_mode: s.price_mode || s.leveling || 'auto',
-                dg_class: s.dgClass || (s.isDG ? 'DG' : null),
-                remark: s.remark || '',
-                q_data: s.qData || {},
-                sort_order: idx + 1
-              }));
-              await supabase.from('sub_shipments').insert(subRecords);
-            }
-          }
-        }
+      if (backup.projects) {
+        projects = backup.projects;
+        localStorage.setItem('af_projects_v2', JSON.stringify(projects));
       }
-
-      updateRoutesFilter();
-      updateValidityDisplay();
-      applyFilters();
-      await loadProjects();
+      if (backup.users) {
+        saveLocalUsers(backup.users);
+      }
+      localStorage.setItem(KEY_DATA, JSON.stringify(appData));
+      
+      loadHeadersToDOM();
+      renderTable();
+      renderProjects();
       if (canManageUsers()) renderUsers();
-      showToast('✅ 数据已从备份恢复', 'success');
+      showToast('✅ 备份已恢复', 'success');
     } catch (err) {
       console.error('backupImport error:', err);
-      showToast('❌ 文件解析失败或导入出错', 'error');
+      showToast('导入失败：' + err.message, 'error');
     }
   };
   reader.readAsText(file);
