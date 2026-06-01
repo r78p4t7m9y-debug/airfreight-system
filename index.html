@@ -1093,7 +1093,7 @@ let appData = null;
 let users = [];
 let nextId = 100;
 let editMode = false; // 编辑模式开关：默认锁定，点击"编辑"后解锁
-const HEADERS_VERSION = 4; // 表头版本号：每次修改DEFAULT_HEADERS后递增，强制同步旧缓存
+const HEADERS_VERSION = 5; // 表头版本号：每次修改DEFAULT_HEADERS后递增，强制同步旧缓存
 
 // ═══════════ 本地用户存储 ═══════════
 纯本地存储 ═══════════
@@ -1121,7 +1121,7 @@ function ensureLocalDefaults() {
 ensureLocalDefaults();
 
 // appData 作为内存缓存（报价查询表数据仍用 localStorage 兼容）
-const KEY_DATA = 'airfreight_data_v4';;
+const KEY_DATA = 'airfreight_data_v5';;
 
 let projects = []; // { id, company, mawb, subShipments, results, createdAt }
 let currentProjectId = null; // editing project
