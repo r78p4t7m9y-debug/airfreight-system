@@ -640,8 +640,6 @@ textarea.editable-input.header-input{
 
 
 <style>
-  #login-screen { display: none !important; }
-  #app { display: flex !important; }
 
 /* ═══ 看板卡片样式 ═══ */
 .kb-card{
@@ -683,7 +681,7 @@ textarea.editable-input.header-input{
 <body>
 
 <!-- ═══════════ 登录页 ═══════════ -->
-<div id="login-screen" style="display:none;">
+<div id="login-screen">
   <div class="login-bg-pattern"></div>
   <div class="login-card" id="login-form">
     <div class="login-logo">
@@ -1273,7 +1271,7 @@ const DEFAULT_ROWS = [
   { id:28, type:'NDG', route:'香港-长沙', currency:'RMB', d_min:360, d_kg:2.45, f_min:28, f_kg:0.73, h:317, i:317, j:155, k:405, l:6.05, m:3.75, n:3.7, o:1.8, p:0, q:0, r:0, s:0, t:0, remark:'' },
   { id:29, type:'NDG', route:'香港-昆明', currency:'RMB', d_min:360, d_kg:2.45, f_min:28, f_kg:0.73, h:317, i:317, j:155, k:405, l:13, m:8.97, n:3.7, o:1.8, p:0, q:0, r:0, s:0, t:0, remark:'' },
   { id:30, type:'NDG', route:'香港-广州', currency:'RMB', d_min:360, d_kg:2.45, f_min:28, f_kg:0.73, h:317, i:317, j:155, k:405, l:18, m:2.86, n:3.7, o:1.8, p:0, q:0, r:0, s:0, t:0, remark:'' },
-];;
+];
 
 const DEFAULT_DATA = {
   validity: { start: '2025-01-01', end: '2025-12-31' },
@@ -1293,10 +1291,19 @@ const HEADERS_VERSION = 5; // 表头版本号：每次修改DEFAULT_HEADERS后�
 // 纯本地存储 ═══════════
 const LOCAL_USERS_KEY = 'af_local_users_v1';
 function getLocalUsers() {
-  try { return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY)) || []; }
-  catch { return []; }
+  try {
+    const raw = localStorage.getItem(LOCAL_USERS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    console.warn('本地用户数据损坏，已重置');
+    return [];
+  }
 }
-function saveLocalUsers(list) { localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(list)); }
+function saveLocalUsers(list) {
+  try { localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(list)); }
+  catch(e) { console.error('保存用户列表失败:', e); }
+}
 function ensureLocalDefaults() {
   let list = getLocalUsers();
   const defaults = [
@@ -1315,14 +1322,14 @@ function ensureLocalDefaults() {
 ensureLocalDefaults();
 
 // appData 作为内存缓存（报价查询表数据仍用 localStorage 兼容）
-const KEY_DATA = 'airfreight_data_v5';;
+const KEY_DATA = 'airfreight_data_v5';
 
 let projects = []; // { id, company, mawb, subShipments, results, createdAt }
 let currentProjectId = null; // editing project
 
 // ═══════════ 云端数据库（Supabase REST API） ═══════════
 const SUPABASE_URL = 'https://aepvhmxuatuhoxqgqxzx.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_guRDEbvw16fvZoOAwlhrnA_cTy9RGNO';
+const SUPABASE_ANON_KEY = 'sbpublishable_guRDEbvw16fvZoOAwlhrnA_cTy9RGNO';
 const SUPABASE_TABLE = 'projects';
 let cloudAvailable = false; // 云端是否可用
 
@@ -1341,7 +1348,7 @@ async function supabaseRequest(method, path, body, extraHeaders) {
     'Prefer': method === 'POST' ? 'return=representation' : method === 'PATCH' ? 'return=representation' : method === 'DELETE' ? 'return=representation' : 'count=exact'
   };
   if (extraHeaders) Object.assign(headers, extraHeaders);
-  const opts = { method, headers };
+  const opts = { method, headers, signal: AbortSignal.timeout(15000) };
   if (body) opts.body = JSON.stringify(body);
   const resp = await fetch(url, opts);
   if (!resp.ok) {
@@ -1428,16 +1435,27 @@ async function loadProjects() {
     const raw = localStorage.getItem('af_projects_v2');
     projects = raw ? JSON.parse(raw) : [];
   } catch(e) {
+    console.error('loadProjects 异常:', e);
     // 异常降级
-    const raw = localStorage.getItem('af_projects_v2');
-    projects = raw ? JSON.parse(raw) : [];
+    try {
+      const raw = localStorage.getItem('af_projects_v2');
+      projects = raw ? JSON.parse(raw) : [];
+    } catch(e2) {
+      console.error('localStorage 数据损坏:', e2);
+      projects = [];
+    }
   }
 }
 
 async function saveProjects() {
   try {
     localStorage.setItem('af_projects_v2', JSON.stringify(projects));
-  } catch(e) { console.error('save fail:', e); }
+  } catch(e) {
+    console.error('saveProjects localStorage 写入失败:', e);
+    if (e.name === 'QuotaExceededError' || e.code === 22) {
+      showToast('⚠️ 本地存储空间不足，数据已同步到云端', 'warning');
+    }
+  }
   // 异步保存到云端（不阻塞UI）
   cloudSaveProjects();
 }
@@ -2078,26 +2096,58 @@ function updateCloudStatus() {
   }
 }
 
-// ═══════════ 初始化（纯本地模式） ═══════════
+// ═══════════ 初始化 ═══════════
 async function init() {
-  // 自动登录为超级管理员（跳过登录界面）
-  currentUser = {
-    id: "local-superadmin", username: "superadmin",
-    email: "superadmin@local.system", role: "superadmin",
-    display: "超级管理员", authUser: null
-  };
+  // 检查7天免登录token
+  const token = localStorage.getItem('af_remember_token');
+  const expire = parseInt(localStorage.getItem('af_remember_expire') || '0');
+  if (token && Date.now() < expire) {
+    try {
+      const info = JSON.parse(atob(token));
+      const localUsers = getLocalUsers();
+      const localUser = localUsers.find(u => u.username === info.username && u.password === info.password);
+      if (localUser) {
+        currentUser = { ...localUser, authUser: null };
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('app').style.display = 'flex';
+        await finishInit();
+        showToast('✅ 欢迎回来，' + currentUser.username, 'success');
+        return;
+      }
+    } catch (e) {
+      console.warn('自动登录失败，清除token:', e);
+      localStorage.removeItem('af_remember_token');
+      localStorage.removeItem('af_remember_expire');
+    }
+  }
 
-  // 加载本地数据（报价查询表数据仍使用 localStorage）
-  const savedData = localStorage.getItem(KEY_DATA);
-  appData = savedData ? JSON.parse(savedData) : JSON.parse(JSON.stringify(DEFAULT_DATA));
+  // 未自动登录 → 显示登录页面
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-username').focus();
+}
+
+// 公共初始化逻辑（登录成功后调用）
+async function finishInit() {
+  // 加载本地数据
+  try {
+    const savedData = localStorage.getItem(KEY_DATA);
+    appData = savedData ? JSON.parse(savedData) : null;
+    if (!appData || !appData.rows || !Array.isArray(appData.rows)) {
+      appData = JSON.parse(JSON.stringify(DEFAULT_DATA));
+    }
+  } catch(e) {
+    console.warn('数据加载失败，使用默认数据:', e);
+    appData = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }
   if (!appData.headers) {
     appData.headers = JSON.parse(JSON.stringify(DEFAULT_HEADERS));
     appData.headersVersion = HEADERS_VERSION;
-    localStorage.setItem(KEY_DATA, JSON.stringify(appData));
+    try { localStorage.setItem(KEY_DATA, JSON.stringify(appData)); } catch(e) {}
   }
   if (!appData.headersVersion) {
     appData.headersVersion = HEADERS_VERSION;
-    localStorage.setItem(KEY_DATA, JSON.stringify(appData));
+    try { localStorage.setItem(KEY_DATA, JSON.stringify(appData)); } catch(e) {}
   }
   nextId = Math.max(100, ...appData.rows.map(r => r.id)) + 1;
 
@@ -2108,7 +2158,6 @@ async function init() {
   try {
     await loadProjects();
     setupUI();
-    // 更新云端状态指示器
     updateCloudStatus();
     loadHeadersToDOM();
     setTimeout(() => document.querySelectorAll('.header-input').forEach(inp => {
@@ -2129,7 +2178,7 @@ async function init() {
 
 
 
-// ═══════════ 登录（纯本地模式） ═══════════
+// ═══════════ 登录 ═══════════
 async function doLogin() {
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-pass').value;
@@ -2142,7 +2191,7 @@ async function doLogin() {
     return;
   }
 
-  // 使用本地账户验证（离线可用，简单可靠）
+  // 使用本地账户验证
   const localUsers = getLocalUsers();
   const localUser = localUsers.find(u => u.username === username && u.password === password);
   if (!localUser) {
@@ -2162,11 +2211,9 @@ async function doLogin() {
   }
 
   errorEl.style.display = 'none';
-  // 先切换界面，再初始化数据（避免初始化失败导致界面卡住）
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
 
-  // 初始化失败也不影响登录状态，用 try-catch 包住
   try {
     await finishInit();
     showToast('✅ 欢迎回来，' + currentUser.username, 'success');
@@ -2175,12 +2222,6 @@ async function doLogin() {
     showToast('⚠️ 登录成功，但数据加载异常，请刷新页面', 'warning');
   }
 }
-
-
-
-
-
-
 
 function doLogout() {
   localStorage.removeItem('af_remember_token');
@@ -2263,15 +2304,23 @@ function applyHeaderEditable() {
 }
 
 // ═══════════ 标签切换 ═══════════
+// ═══════════ 标签切换 ═══════════
 async function switchTab(tab) {
+  const pageEl = document.getElementById(tab);
+  const navEl = document.getElementById('nav-' + tab);
+  if (!pageEl || !navEl) return;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById(tab).classList.add('active');
-  document.getElementById('nav-' + tab).classList.add('active');
-  if (tab === 'tab1') { loadHeadersToDOM(); applyHeaderEditable(); setTimeout(() => document.querySelectorAll('.header-input').forEach(inp => { if (inp.tagName === 'TEXTAREA') autoHeight(inp); }), 50); }
-  if (tab === 'tab2') await renderProjects();
-  if (tab === 'tab3' && canManageUsers()) await renderUsers();
-  if (tab === 'tab4') await renderKanban();
+  pageEl.classList.add('active');
+  navEl.classList.add('active');
+  try {
+    if (tab === 'tab1') { loadHeadersToDOM(); applyHeaderEditable(); setTimeout(() => document.querySelectorAll('.header-input').forEach(inp => { if (inp.tagName === 'TEXTAREA') autoHeight(inp); }), 50); }
+    if (tab === 'tab2') await renderProjects();
+    if (tab === 'tab3' && canManageUsers()) await renderUsers();
+    if (tab === 'tab4') await renderKanban();
+  } catch(e) {
+    console.error('switchTab 错误:', e);
+  }
 }
 
 // ═══════════ 渲染表格 ═══════════
@@ -3072,6 +3121,7 @@ function addBlankRow(id) {
 function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 function showToast(msg, type) {
   const c = document.getElementById('toast-container');
+  if (!c) { console.log('[toast]', msg, type); return; }
   const t = document.createElement('div');
   t.className = 'toast ' + (type || '');
   t.textContent = msg;
@@ -3083,7 +3133,7 @@ document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', e => { if (e.target === o) o.classList.remove('show'); });
 });
 
-// 启动应用（纯本地模式）
+// 启动应用
 init().catch(err => {
   console.error('Init error:', err);
   alert('系统初始化失败: ' + err.message + '\n请刷新页面重试');
@@ -3093,10 +3143,10 @@ init().catch(err => {
 let chartStatus = null, chartReceivable = null, chartProject = null, chartTimeline = null;
 async function renderKanban() {
   if (typeof Chart === 'undefined') { console.warn('Chart.js 未加载'); return; }
-  if (!projects.length) { console.log('暂无项目数据'); return; }
+  if (!Array.isArray(projects) || !projects.length) { console.log('暂无项目数据'); return; }
 
   // ── 注册 datalabels 插件 ──
-  if (ChartDataLabels) Chart.register(ChartDataLabels);
+  try { if (typeof ChartDataLabels !== 'undefined') Chart.register(ChartDataLabels); } catch(e) {}
 
   // ── 0. 顶部统计卡片 ──
   const statusCount = { '待出发': 0, '延误': 0, '完成': 0 };
