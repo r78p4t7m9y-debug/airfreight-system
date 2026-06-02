@@ -885,7 +885,8 @@ textarea.editable-input.header-input{
     <div class="page-header">
       <div><div class="page-title">📄 空运报价表</div><div class="page-subtitle">新建项目 → 输入参数 → 自动计算报价</div></div>
       <div class="btn-group">
-        <span id="cloud-status" style="font-size:12px;margin-right:6px;display:flex;align-items:center;gap:4px;cursor:help" title="云端数据库连接状态"></span>
+        <span id="cloud-status" style="font-size:12px;margin-right:2px;display:flex;align-items:center;gap:4px;cursor:help" title="云端数据库连接状态"></span>
+        <button id="cloud-reconnect-btn" class="btn btn-ghost" style="display:none;font-size:11px;padding:2px 8px;margin-right:4px;" onclick="retryCloudConnect()" title="重新连接云存储">🔗 连接</button>
         <button class="btn btn-primary" onclick="showNewProjectForm()">+ 新建项目</button>
         <button class="btn btn-ghost" onclick="renderProjects()">🔄 刷新</button>
 
@@ -1329,7 +1330,7 @@ let currentProjectId = null; // editing project
 
 // ═══════════ 云端数据库（Supabase REST API） ═══════════
 const SUPABASE_URL = 'https://aepvhmxuatuhoxqgqxzx.supabase.co';
-const SUPABASE_ANON_KEY = 'sbpublishable_guRDEbvw16fvZoOAwlhrnA_cTy9RGNO';
+const SUPABASE_ANON_KEY = 'sb_publishable_guRDEbvw16fvZoOAwlhrnA_cTy9RGNO';
 const SUPABASE_TABLE = 'projects';
 let cloudAvailable = false; // 云端是否可用
 
@@ -2094,17 +2095,41 @@ function canEdit() { return isAdmin() && editMode; } // 编辑模式开关
 // 云端状态指示器
 function updateCloudStatus() {
   const el = document.getElementById('cloud-status');
+  const btn = document.getElementById('cloud-reconnect-btn');
   if (!el) return;
   if (!isCloudConfigured()) {
     el.innerHTML = '<span style="color:var(--amber-500)">⚠️</span> 仅本地';
     el.title = '云端数据库未配置，数据仅保存在当前浏览器中。更换浏览器或设备将无法看到数据。';
+    if (btn) btn.style.display = 'none';
   } else if (cloudAvailable) {
     el.innerHTML = '<span style="color:var(--green-500)">☁️</span> 已同步';
     el.title = '已连接云端数据库，数据跨浏览器/设备同步。';
+    if (btn) btn.style.display = 'none';
   } else {
     el.innerHTML = '<span style="color:var(--red-500)">☁️</span> 未连接';
-    el.title = '云端数据库连接失败，数据仅保存在本地。';
+    el.title = '云端数据库连接失败，数据仅保存在本地。点击"连接"按钮重试。';
+    if (btn) btn.style.display = 'inline-flex';
   }
+}
+
+// 手动重连云存储
+async function retryCloudConnect() {
+  const btn = document.getElementById('cloud-reconnect-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 连接中...'; }
+  try {
+    const data = await cloudLoadProjects();
+    if (data !== null) {
+      updateCloudStatus();
+      showToast('✅ 云存储连接成功', 'success');
+    } else {
+      updateCloudStatus();
+      showToast('❌ 云存储连接失败，请检查网络', 'error');
+    }
+  } catch(e) {
+    updateCloudStatus();
+    showToast('❌ 连接异常: ' + e.message, 'error');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '🔗 连接'; }
 }
 
 // ═══════════ 初始化 ═══════════
