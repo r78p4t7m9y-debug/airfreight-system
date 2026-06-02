@@ -755,7 +755,7 @@ textarea.editable-input.header-input{
 </div>
 
 <!-- ═══════════ 主应用 ═══════════ -->
-<div id="app" style="display:flex;">
+<div id="app" style="display:none;">
   <!-- 顶部导航 -->
   <div class="topbar">
     <div class="topbar-brand">
@@ -1377,14 +1377,14 @@ async function cloudLoadProjects() {
 }
 
 // 保存所有项目到云端（upsert 批量写入）
+// ⚠️ 安全策略：绝不因 projects 为空就删除云端数据，防止初始化时误清
 async function cloudSaveProjects() {
   if (!isCloudConfigured() || !cloudAvailable) return;
+  if (projects.length === 0) {
+    console.warn('[cloudSave] projects 为空，跳过云端同步（防止误删）');
+    return;
+  }
   try {
-    if (projects.length === 0) {
-      // 没有项目，清空云端
-      await supabaseRequest('DELETE', `${SUPABASE_TABLE}?id=not.is.null`, {});
-      return;
-    }
     // 使用 upsert：存在则更新，不存在则插入
     const rows = projects.map(p => ({ id: p.id, data: p }));
     await supabaseRequest('POST', SUPABASE_TABLE, rows, {
@@ -1426,6 +1426,17 @@ async function loadProjects() {
     // 优先从云端加载
     const cloudData = await cloudLoadProjects();
     if (cloudData !== null) {
+      // 云端返回空数组但本地有数据 → 可能是云端同步问题，保留本地数据
+      if (cloudData.length === 0) {
+        const raw = localStorage.getItem('af_projects_v2');
+        const localData = raw ? JSON.parse(raw) : [];
+        if (localData.length > 0) {
+          console.warn('[loadProjects] 云端为空但本地有数据，保留本地数据并同步到云端');
+          projects = localData;
+          cloudSaveProjects(); // 将本地数据同步到云端
+          return;
+        }
+      }
       projects = cloudData;
       // 同步到 localStorage 作为缓存
       localStorage.setItem('af_projects_v2', JSON.stringify(projects));
